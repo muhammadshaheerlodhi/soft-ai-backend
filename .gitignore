@@ -1,0 +1,13 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# dependencies / build
+node_modules/
+dist/
+coverage/
+
+# local tools
+supabase/.temp/
+*.log
