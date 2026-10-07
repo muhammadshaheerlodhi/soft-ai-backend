@@ -70,3 +70,4 @@ soft-ai-backend/
 - [docs/02-backend-skeleton.md](docs/02-backend-skeleton.md)
 - [docs/03-credit-metering.md](docs/03-credit-metering.md)
 - [docs/04-gemini-chat.md](docs/04-gemini-chat.md)
+- [docs/05-chat-panel.md](docs/05-chat-panel.md)
