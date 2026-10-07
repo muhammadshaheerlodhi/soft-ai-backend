@@ -30,6 +30,15 @@ const envSchema = z
     AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(60_000),
     AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(16).max(8192).default(1024),
 
+    // Knowledge base (step 6)
+    GEMINI_EMBEDDING_MODEL: z.string().min(1).default("gemini-embedding-2"),
+    KNOWLEDGE_TOP_K: z.coerce.number().int().min(1).max(20).default(4),
+    // How close a help text must be to the question to be used (0..1). Measured with
+    // gemini-embedding-2 on 7 Oct 2026: real ERP questions matched at 0.67-0.79, unrelated
+    // questions (weather, poems) at most 0.57 -> 0.62 sits in the gap. Re-check if the model changes.
+    KNOWLEDGE_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.62),
+    ANSWER_CACHE_TTL_HOURS: z.coerce.number().int().min(0).max(24 * 30).default(24),
+
     // Chat
     CHAT_MAX_MESSAGE_CHARS: z.coerce.number().int().min(100).max(20_000).default(4000),
     CHAT_HISTORY_MAX_MESSAGES: z.coerce.number().int().min(1).max(100).default(20),
@@ -85,6 +94,10 @@ export interface Config {
   aiMaxOutputTokens: number;
   chat: { maxMessageChars: number; historyMaxMessages: number; historyMaxChars: number };
   rateLimits: { userPerMinute: number; userPerDay: number; orgPerMinute: number };
+  embeddingModel: string;
+  knowledge: { topK: number; minSimilarity: number };
+  /** 0 = cache off. */
+  answerCacheTtlHours: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -115,6 +128,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       historyMaxMessages: e.CHAT_HISTORY_MAX_MESSAGES,
       historyMaxChars: e.CHAT_HISTORY_MAX_CHARS,
     },
+    embeddingModel: e.GEMINI_EMBEDDING_MODEL,
+    knowledge: { topK: e.KNOWLEDGE_TOP_K, minSimilarity: e.KNOWLEDGE_MIN_SIMILARITY },
+    answerCacheTtlHours: e.ANSWER_CACHE_TTL_HOURS,
     rateLimits: {
       userPerMinute: e.RATE_USER_PER_MINUTE,
       userPerDay: e.RATE_USER_PER_DAY,

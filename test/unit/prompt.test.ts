@@ -50,7 +50,7 @@ describe("system prompt", () => {
   it("states the honest limits of step 4", () => {
     expect(SYSTEM_PROMPT).toContain("cannot see this company's data");
     expect(SYSTEM_PROMPT).toContain("Never invent company figures");
-    expect(SYSTEM_PROMPT).toContain("Do not name specific Softoras menus");
+    expect(SYSTEM_PROMPT).toContain("ONLY if they appear in that help text");
     expect(SYSTEM_PROMPT).toContain("same language");
   });
 });

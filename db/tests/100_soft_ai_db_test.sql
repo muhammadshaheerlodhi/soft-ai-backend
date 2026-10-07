@@ -271,6 +271,9 @@ SELECT pg_temp.fails($$UPDATE soft_ai.actions SET status = 'executed' WHERE id =
 -- ======================= KNOWLEDGE =======================
 
 -- 24. Only one active release at a time.
+-- (A real release may already be active on this database; set it aside inside this
+--  test transaction - everything is rolled back at the end.)
+UPDATE soft_ai.knowledge_releases SET status = 'retired' WHERE status = 'active';
 INSERT INTO soft_ai.knowledge_releases (version, status) VALUES ('test-r1', 'active');
 SELECT pg_temp.fails($$INSERT INTO soft_ai.knowledge_releases (version, status) VALUES ('test-r2', 'active')$$,
                      'duplicate key', 'knowledge: only one active release');

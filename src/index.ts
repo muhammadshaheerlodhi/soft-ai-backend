@@ -11,6 +11,9 @@ import { createSqlCreditStore } from "./credits/store.js";
 import { createStreamMeter } from "./credits/metering-stream.js";
 import { aiRateLimitRules } from "./http/rate-limit.js";
 import { registerChatRoutes } from "./chat/routes.js";
+import { FakeEmbedder, GeminiEmbedder, type Embedder } from "./ai/embedder.js";
+import { createPageDirectory } from "./chat/rules.js";
+import { createAnswerCache } from "./chat/answer-cache.js";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -20,6 +23,11 @@ const provider: AiProvider =
   config.aiProvider === "gemini"
     ? new GeminiProvider({ apiKey: config.geminiApiKey!, thinkingLevel: config.thinkingLevel })
     : new FakeProvider({ reply: "(Local test mode: this answer comes from the fake AI, not Gemini.)" });
+
+const embedder: Embedder =
+  config.aiProvider === "gemini"
+    ? new GeminiEmbedder({ apiKey: config.geminiApiKey!, model: config.embeddingModel })
+    : new FakeEmbedder();
 
 const meter = createStreamMeter({
   store: createSqlCreditStore(sql),
@@ -46,6 +54,9 @@ const app = createApp({
       rateLimitRules: aiRateLimitRules(config.rateLimits),
       maxMessageChars: config.chat.maxMessageChars,
       history: { maxMessages: config.chat.historyMaxMessages, maxChars: config.chat.historyMaxChars },
+      knowledge: { embedder, topK: config.knowledge.topK, minSimilarity: config.knowledge.minSimilarity },
+      pages: createPageDirectory(sql),
+      cache: config.answerCacheTtlHours > 0 ? createAnswerCache(sql, { ttlHours: config.answerCacheTtlHours }) : undefined,
     }),
 });
 

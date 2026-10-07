@@ -1,4 +1,5 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
+import { InsufficientCreditsError } from "../credits/store.js";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { Sql } from "../db/client.js";
@@ -8,8 +9,12 @@ import { ApiError, describeError } from "../http/errors.js";
 import { rateLimit, type RateLimitRule } from "../http/rate-limit.js";
 import type { AppEnv } from "../http/types.js";
 import { isUuid } from "../lib/uuid.js";
-import { createChatRepository, type ConversationRow, type MessageRow } from "./repository.js";
-import { buildHistory, SYSTEM_PROMPT, titleFromMessage } from "./prompt.js";
+import type { Embedder } from "../ai/embedder.js";
+import { formatKnowledgeForPrompt, retrieveKnowledge, type RetrievalResult } from "../knowledge/retrieve.js";
+import { createChatRepository, type ConversationRow, type MessageRow, type MessageSource, type Owner } from "./repository.js";
+import { buildHistory, SYSTEM_PROMPT, titleFromMessage, withKnowledge } from "./prompt.js";
+import { matchRule, type PageDirectory } from "./rules.js";
+import type { AnswerCache } from "./answer-cache.js";
 
 export interface ChatRouteOptions {
   sql: Sql;
@@ -21,6 +26,12 @@ export interface ChatRouteOptions {
   maxMessageChars: number;
   /** How much earlier conversation is sent to the AI with each new message. */
   history: { maxMessages: number; maxChars: number };
+  /** Step 6: knowledge base search. Leave out to answer without ERP help text. */
+  knowledge?: { embedder: Embedder; topK: number; minSimilarity: number };
+  /** Step 6: free answers for common commands ("open invoices"). */
+  pages?: PageDirectory;
+  /** Step 6: free answers for repeated stand-alone questions. */
+  cache?: AnswerCache;
 }
 
 const sendSchema = z.object({
@@ -118,12 +129,71 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
       throw new ApiError(409, "conflict", "Soft AI is still answering your last message in this chat.");
     }
 
-    // Earlier conversation + the new message.
+    const isFirstMessage = conv.message_count === 0;
+    const pageContext = body.pageContext ?? {};
+
+    // ---- A. Rules engine: common commands, answered by our own code (free) ----
+    if (opts.pages) {
+      const rule = matchRule(body.content, await opts.pages.pagesFor(c.get("member")));
+      if (rule) {
+        return sendInstantAnswer(c, repo, me, id, isFirstMessage, body.content, pageContext, {
+          answeredBy: "rules",
+          text: rule.reply,
+          sources: [],
+          navigateTo: rule.navigateTo,
+        });
+      }
+    }
+
+    // Free answers end here; everything below may cost credits.
+    // Quick check first so an organization with no credits does not even trigger a search.
+    const wallet = await getWalletBalance(opts.sql, me.organizationId);
+    if (Number(wallet.available) <= 0) throw new InsufficientCreditsError();
+
+    // ---- B. Knowledge search (which help pages match the question) ----
+    let retrieval: RetrievalResult = { hits: [], releaseVersion: null };
+    if (opts.knowledge) {
+      try {
+        retrieval = await retrieveKnowledge({
+          sql: opts.sql,
+          embedder: opts.knowledge.embedder,
+          organizationId: me.organizationId,
+          question: body.content,
+          topK: opts.knowledge.topK,
+          minSimilarity: opts.knowledge.minSimilarity,
+        });
+      } catch (err) {
+        // Search problems must not block chatting: answer without help text, and log it.
+        log.warn({ err }, "knowledge search failed; answering without help text");
+      }
+    }
+    const sources: MessageSource[] = dedupeSources(retrieval.hits.map((h) => ({ title: h.title, urlPath: h.urlPath })));
+
+    // ---- C. Answer cache: same stand-alone question in this organization (free) ----
+    const cacheKey =
+      opts.cache && isFirstMessage && retrieval.releaseVersion
+        ? { organizationId: me.organizationId, question: body.content, releaseVersion: retrieval.releaseVersion, model: opts.model }
+        : null;
+    if (cacheKey && opts.cache) {
+      const cached = await opts.cache.get(cacheKey).catch(() => null);
+      if (cached) {
+        return sendInstantAnswer(c, repo, me, id, isFirstMessage, body.content, pageContext, {
+          answeredBy: "cache",
+          text: cached.answer,
+          sources: cached.sources as MessageSource[],
+        });
+      }
+    }
+
+    // ---- D. The AI ----
+    // Earlier conversation + the new message (with the matching help text for the AI only).
     const earlier = await repo.listMessages(me, id, opts.history.maxMessages * 2);
     const history = buildHistory([...earlier, { role: "user", content: body.content, status: "complete" }], opts.history);
+    const last = history[history.length - 1];
+    if (last) last.content = withKnowledge(last.content, formatKnowledgeForPrompt(retrieval.hits));
 
     // 1. HOLD credits. Not enough -> 402 here, before anything is saved or sent to the AI.
-    const reference: Record<string, unknown> = { conversation_id: id };
+    const reference: Record<string, unknown> = { conversation_id: id, knowledge_release: retrieval.releaseVersion };
     const metered = await opts.meter.open({
       organizationId: me.organizationId,
       userId: me.userId,
@@ -134,9 +204,9 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     // 2. Save the user's message and an empty reply. If saving fails, give the hold back.
     let ids: { userMessageId: string; assistantMessageId: string };
     try {
-      ids = await repo.startExchange(me, id, body.content, body.pageContext ?? {});
+      ids = await repo.startExchange(me, id, body.content, pageContext);
       reference.message_id = ids.assistantMessageId;
-      if (conv.message_count === 0) await repo.setTitleIfNew(me, id, titleFromMessage(body.content));
+      if (isFirstMessage) await repo.setTitleIfNew(me, id, titleFromMessage(body.content));
     } catch (err) {
       await metered.cancel();
       throw err;
@@ -160,17 +230,24 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
           inputTokens: outcome.usage.inputTokens,
           outputTokens: outcome.usage.outputTokens,
           creditsCharged: outcome.charged,
+          sources,
           latencyMs: Math.round(performance.now() - started),
         });
+        // Remember complete stand-alone answers for the cache (never stopped / failed ones).
+        if (cacheKey && opts.cache && outcome.status === "complete" && outcome.text.trim()) {
+          await opts.cache.put(cacheKey, { answer: outcome.text, sources }).catch((e) => log.warn({ err: e }, "could not save answer to cache"));
+        }
         if (!sse.aborted) {
-          const wallet = await getWalletBalance(opts.sql, me.organizationId);
+          const after = await getWalletBalance(opts.sql, me.organizationId);
           await sse.writeSSE({
             event: "done",
             data: JSON.stringify({
               messageId: ids.assistantMessageId,
               status: outcome.status,
               creditsCharged: outcome.charged ?? "0.0000",
-              balance: wallet.available,
+              balance: after.available,
+              answeredBy: "model",
+              sources,
             }),
           });
         }
@@ -190,6 +267,59 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
         }
       }
     });
+  });
+}
+
+// ---------- free answers (rules engine, cache) ----------
+
+/**
+ * Saves and sends an answer that needed no AI call: same streaming format as
+ * an AI answer (start -> delta -> done), charged 0 credits.
+ */
+async function sendInstantAnswer(
+  c: Context<AppEnv>,
+  repo: ReturnType<typeof createChatRepository>,
+  me: Owner,
+  conversationId: string,
+  isFirstMessage: boolean,
+  question: string,
+  pageContext: Record<string, unknown>,
+  answer: { answeredBy: "rules" | "cache"; text: string; sources: MessageSource[]; navigateTo?: string },
+) {
+  const started = performance.now();
+  const ids = await repo.startExchange(me, conversationId, question, pageContext, answer.answeredBy);
+  if (isFirstMessage) await repo.setTitleIfNew(me, conversationId, titleFromMessage(question));
+  await repo.finishAssistantMessage(me, ids.assistantMessageId, {
+    status: "complete",
+    content: answer.text,
+    creditsCharged: "0",
+    sources: answer.sources,
+    latencyMs: Math.round(performance.now() - started),
+  });
+  return streamSSE(c, async (sse) => {
+    await sse.writeSSE({ event: "start", data: JSON.stringify({ messageId: ids.assistantMessageId, userMessageId: ids.userMessageId }) });
+    await sse.writeSSE({ event: "delta", data: JSON.stringify({ text: answer.text }) });
+    await sse.writeSSE({
+      event: "done",
+      data: JSON.stringify({
+        messageId: ids.assistantMessageId,
+        status: "complete",
+        creditsCharged: "0.0000",
+        answeredBy: answer.answeredBy,
+        sources: answer.sources,
+        ...(answer.navigateTo ? { navigateTo: answer.navigateTo } : {}),
+      }),
+    });
+  });
+}
+
+function dedupeSources(sources: MessageSource[]): MessageSource[] {
+  const seen = new Set<string>();
+  return sources.filter((s) => {
+    const key = s.urlPath ?? s.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 }
 
@@ -216,6 +346,8 @@ function toMessage(m: MessageRow) {
     status: m.status,
     errorCode: m.error_code,
     creditsCharged: m.credits_charged,
+    answeredBy: m.answered_by,
+    sources: m.sources ?? [],
     createdAt: m.created_at,
   };
 }

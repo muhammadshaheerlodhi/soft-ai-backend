@@ -24,8 +24,16 @@ export interface MessageRow {
   status: "streaming" | "complete" | "stopped" | "error";
   error_code: string | null;
   model: string | null;
+  answered_by: "rules" | "cache" | "model" | null;
   credits_charged: string;
+  sources: MessageSource[];
   created_at: string;
+}
+
+/** A help page an answer was based on (shown under the answer as a link). */
+export interface MessageSource {
+  title: string;
+  urlPath: string | null;
 }
 
 export interface Owner {
@@ -106,8 +114,8 @@ export function createChatRepository(sql: Sql) {
       // Newest N, returned oldest-first for display.
       return sql<MessageRow[]>`
         select * from (
-          select m.id, m.role, m.content, m.status, m.error_code, m.model,
-                 m.credits_charged::text, m.created_at
+          select m.id, m.role, m.content, m.status, m.error_code, m.model, m.answered_by,
+                 m.credits_charged::text, m.sources, m.created_at
             from soft_ai.messages m
             join soft_ai.conversations c on c.id = m.conversation_id
            where m.conversation_id = ${conversationId}
@@ -141,6 +149,7 @@ export function createChatRepository(sql: Sql) {
       conversationId: string,
       content: string,
       pageContext: Record<string, unknown>,
+      answeredBy: "rules" | "cache" | "model" = "model",
     ): Promise<{ userMessageId: string; assistantMessageId: string }> {
       return sql.begin(async (tx) => {
         const [u] = await tx<{ id: string }[]>`
@@ -150,7 +159,7 @@ export function createChatRepository(sql: Sql) {
           returning id`;
         const [a] = await tx<{ id: string }[]>`
           insert into soft_ai.messages (conversation_id, organization_id, user_id, role, content, status, answered_by, created_at)
-          values (${conversationId}, ${owner.organizationId}, ${owner.userId}, 'assistant', '', 'streaming', 'model',
+          values (${conversationId}, ${owner.organizationId}, ${owner.userId}, 'assistant', '', 'streaming', ${answeredBy},
                   clock_timestamp())
           returning id`;
         return { userMessageId: u!.id, assistantMessageId: a!.id };
@@ -168,6 +177,7 @@ export function createChatRepository(sql: Sql) {
         inputTokens?: number | null;
         outputTokens?: number | null;
         creditsCharged?: string | null;
+        sources?: MessageSource[];
         latencyMs: number;
       },
     ): Promise<void> {
@@ -180,6 +190,7 @@ export function createChatRepository(sql: Sql) {
           input_tokens    = ${result.inputTokens ?? null},
           output_tokens   = ${result.outputTokens ?? null},
           credits_charged = ${result.creditsCharged ?? "0"}::numeric,
+          sources         = ${sql.json((result.sources ?? []) as never)},
           latency_ms      = ${result.latencyMs}
          where id = ${messageId}
            and organization_id = ${owner.organizationId} and user_id = ${owner.userId}`;

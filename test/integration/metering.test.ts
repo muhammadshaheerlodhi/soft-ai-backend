@@ -108,13 +108,17 @@ describe("metered AI calls on the real database", () => {
     // Org B gets 30 credits. Worst case per call ~ (small input * 2 + 500*10)/1000 = just over 5 credits,
     // so at most 5 calls can hold credits at the same time.
     await service`select soft_ai.add_credits(${f.orgB}::uuid, 30, 'purchase', ${`m-buy-${f.orgB}`})`;
-    const provider = new FakeProvider({ usage: { inputTokens: 100, outputTokens: 100 }, delayMs: 100 });
+    // The fake AI takes 1.5 s, so all 15 holds are attempted while the first calls are
+    // still running (a fast AI could finish and free credits early, letting more through
+    // legitimately - that once made this test fail with 6 instead of <= 5).
+    const provider = new FakeProvider({ usage: { inputTokens: 100, outputTokens: 100 }, delayMs: 1500 });
     const results = await Promise.allSettled(Array.from({ length: 15 }, () => run(provider)(call(f.orgB, f.ownerB))));
 
     const ok = results.filter((r) => r.status === "fulfilled").length;
     expect(ok).toBe(provider.calls); // every AI call that ran was paid for
     expect(ok).toBeGreaterThanOrEqual(1);
-    expect(ok).toBeLessThanOrEqual(5);
+    expect(ok).toBeLessThanOrEqual(5); // never more running at once than the balance covers
+    expect(ok * 1.2).toBeLessThanOrEqual(30); // never overspent
     // Each call cost 100*2/1000 + 100*10/1000 = 1.2 credits.
     const w = await wallet(f.orgB);
     expect(w.reserved).toBe("0.0000");
