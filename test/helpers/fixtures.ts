@@ -69,10 +69,28 @@ export async function createFixtures(admin: Sql): Promise<Fixtures> {
   return f;
 }
 
+/**
+ * ERP tables that tests may fill (test/helpers/erp-data.ts), children first.
+ * They are emptied BEFORE the organization is deleted, because the ERP's audit
+ * trigger writes a log row for each deleted record; during an organization's
+ * own deletion that log row points to an organization that is being removed
+ * and the database refuses it (an ERP behavior, reported to Shaheer).
+ */
+const ERP_TEST_TABLES = [
+  "payments", "invoices", "customers", "vendor_bills", "vendors", "bank_accounts", "journal_entry_lines", "journal_entries",
+  "accounts", "product_stock", "products", "warehouses", "attendance", "leave_requests", "leave_types",
+  "employees", "expenses",
+];
+
 /** Removes everything created above (organizations cascade to their Soft AI data). */
 export async function removeFixtures(admin: Sql, f: Fixtures): Promise<void> {
+  const orgs = [f.orgS, f.orgA, f.orgB];
   await admin.begin(async (tx) => {
-    await tx`delete from public.organizations where id in (${f.orgS}, ${f.orgA}, ${f.orgB})`;
+    for (const table of ERP_TEST_TABLES) {
+      await tx`delete from public.${tx(table)} where organization_id in ${tx(orgs)}`;
+    }
+    await tx`delete from public.audit_logs where organization_id in ${tx(orgs)}`;
+    await tx`delete from public.organizations where id in ${tx(orgs)}`;
     await tx`delete from auth.users where id in ${tx([f.ownerA, f.salesA, f.inactiveA, f.ownerS, f.ownerB, f.stranger])}`;
   });
 }

@@ -57,6 +57,7 @@ const app = createApp({
       knowledge: { embedder, topK: config.knowledge.topK, minSimilarity: config.knowledge.minSimilarity },
       pages: createPageDirectory(sql),
       cache: config.answerCacheTtlHours > 0 ? createAnswerCache(sql, { ttlHours: config.answerCacheTtlHours }) : undefined,
+      tools: config.tools ?? undefined,
     }),
 });
 

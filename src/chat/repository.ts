@@ -178,6 +178,8 @@ export function createChatRepository(sql: Sql) {
         outputTokens?: number | null;
         creditsCharged?: string | null;
         sources?: MessageSource[];
+        /** Data tools the AI used (name, inputs, ok) - kept for audit and support. */
+        toolCalls?: unknown[];
         latencyMs: number;
       },
     ): Promise<void> {
@@ -191,6 +193,7 @@ export function createChatRepository(sql: Sql) {
           output_tokens   = ${result.outputTokens ?? null},
           credits_charged = ${result.creditsCharged ?? "0"}::numeric,
           sources         = ${sql.json((result.sources ?? []) as never)},
+          tool_calls      = ${sql.json((result.toolCalls ?? []) as never)},
           latency_ms      = ${result.latencyMs}
          where id = ${messageId}
            and organization_id = ${owner.organizationId} and user_id = ${owner.userId}`;

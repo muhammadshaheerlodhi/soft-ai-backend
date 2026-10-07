@@ -29,6 +29,8 @@ function Apply([string]$file) {
 if (-not $SkipErp) {
   Get-ChildItem $ErpMigrations -Filter *.sql | Sort-Object Name | ForEach-Object { Apply $_.FullName }
 }
+# Local-only fixes for problems in the ERP's own SQL (see the file; reported to Shaheer)
+Apply "$root\db\local\erp-local-fixes.sql"
 Get-ChildItem "$root\db\migrations" -Filter *.sql | Sort-Object Name | ForEach-Object { Apply $_.FullName }
 Apply "$root\db\local\enable-local-service-login.sql"
 Write-Host "`nLocal database ready."

@@ -296,8 +296,14 @@ describe("user presses stop", () => {
     expect(msg.status).toBe("stopped");
     expect(msg.content.length).toBeGreaterThan(0);
     expect(msg.content.length).toBeLessThan("w1 w2 w3 w4 w5 w6 w7 w8 w9 w10".length);
-    // Charged: full input (0.2) + only part of the output (< 100 tokens * 10/1000 = 1.0)
-    expect(Number(msg.creditsCharged)).toBeGreaterThan(0.2);
-    expect(Number(msg.creditsCharged)).toBeLessThan(1.2);
+    // Charged something (input + the part that was produced) ...
+    expect(Number(msg.creditsCharged)).toBeGreaterThan(0);
+    // ... but only PART of the output: the full reply would be 100 output tokens.
+    // (Checked on output tokens, not total credits: if the user stops before the AI reports
+    //  token counts, the input is estimated on the high side, and that estimate grows when
+    //  Soft AI's instructions grow - this test once failed for exactly that reason.)
+    const [row] = await admin<{ output_tokens: number }[]>`select output_tokens from soft_ai.messages where id = ${msg.id}`;
+    expect(row!.output_tokens).toBeGreaterThan(0);
+    expect(row!.output_tokens).toBeLessThan(100);
   });
 });

@@ -15,6 +15,8 @@ import { createChatRepository, type ConversationRow, type MessageRow, type Messa
 import { buildHistory, SYSTEM_PROMPT, titleFromMessage, withKnowledge } from "./prompt.js";
 import { matchRule, type PageDirectory } from "./rules.js";
 import type { AnswerCache } from "./answer-cache.js";
+import { toJsonSchema, toolsFor, getTool } from "../tools/registry.js";
+import { executeToolCalls } from "../tools/execute.js";
 
 export interface ChatRouteOptions {
   sql: Sql;
@@ -32,6 +34,8 @@ export interface ChatRouteOptions {
   pages?: PageDirectory;
   /** Step 6: free answers for repeated stand-alone questions. */
   cache?: AnswerCache;
+  /** Step 7: company-data tools. maxRounds = AI rounds per question (tools + final answer). */
+  tools?: { maxRounds: number };
 }
 
 const sendSchema = z.object({
@@ -192,12 +196,24 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const last = history[history.length - 1];
     if (last) last.content = withKnowledge(last.content, formatKnowledgeForPrompt(retrieval.hits));
 
+    // Company-data tools: ONLY the ones this user's role allows are offered to the AI.
+    const member = c.get("member");
+    const userTools = opts.tools ? toolsFor(member) : [];
+    const toolDeclarations = userTools.map((t) => ({ name: t.name, description: t.description, parameters: toJsonSchema(t.parameters) }));
+
     // 1. HOLD credits. Not enough -> 402 here, before anything is saved or sent to the AI.
     const reference: Record<string, unknown> = { conversation_id: id, knowledge_release: retrieval.releaseVersion };
     const metered = await opts.meter.open({
       organizationId: me.organizationId,
       userId: me.userId,
-      request: { model: opts.model, system: SYSTEM_PROMPT, messages: history, maxOutputTokens: opts.maxOutputTokens },
+      request: {
+        model: opts.model,
+        system: SYSTEM_PROMPT,
+        messages: history,
+        maxOutputTokens: opts.maxOutputTokens,
+        ...(toolDeclarations.length ? { tools: toolDeclarations } : {}),
+      },
+      maxRounds: opts.tools?.maxRounds,
       reference,
     });
 
@@ -222,7 +238,17 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
       await sse.writeSSE({ event: "start", data: JSON.stringify({ messageId: ids.assistantMessageId, userMessageId: ids.userMessageId }) });
 
       try {
-        const outcome = await metered.run((text) => sse.writeSSE({ event: "delta", data: JSON.stringify({ text }) }), userStop.signal);
+        const outcome = await metered.run((text) => sse.writeSSE({ event: "delta", data: JSON.stringify({ text }) }), userStop.signal, {
+          executeTools: (calls) => executeToolCalls({ sql: opts.sql, member, calls, log }),
+          onToolsStart: (calls) =>
+            sse.writeSSE({ event: "status", data: JSON.stringify({ text: getTool(calls[0]?.name ?? "")?.statusText ?? "Looking that up…" }) }),
+        });
+        // Pages of the data the answer used (e.g. Invoices), after the help pages.
+        const toolPages: MessageSource[] = outcome.toolCalls
+          .filter((t) => t.ok)
+          .map((t) => getTool(t.name)?.page)
+          .filter((p): p is { title: string; urlPath: string } => Boolean(p));
+        const allSources = dedupeSources([...toolPages, ...sources]);
         await repo.finishAssistantMessage(me, ids.assistantMessageId, {
           status: outcome.status,
           content: outcome.text,
@@ -230,11 +256,19 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
           inputTokens: outcome.usage.inputTokens,
           outputTokens: outcome.usage.outputTokens,
           creditsCharged: outcome.charged,
-          sources,
+          sources: allSources,
+          toolCalls: outcome.toolCalls,
           latencyMs: Math.round(performance.now() - started),
         });
-        // Remember complete stand-alone answers for the cache (never stopped / failed ones).
-        if (cacheKey && opts.cache && outcome.status === "complete" && outcome.text.trim()) {
+        // Remember complete stand-alone answers for the cache - NEVER answers that used company
+        // data (they change all the time), and when the user has data tools, only how-to answers
+        // based on ERP help text.
+        const cacheable =
+          outcome.status === "complete" &&
+          outcome.text.trim() !== "" &&
+          outcome.toolCalls.length === 0 &&
+          (userTools.length === 0 || retrieval.hits.length > 0);
+        if (cacheKey && opts.cache && cacheable) {
           await opts.cache.put(cacheKey, { answer: outcome.text, sources }).catch((e) => log.warn({ err: e }, "could not save answer to cache"));
         }
         if (!sse.aborted) {
@@ -247,7 +281,8 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
               creditsCharged: outcome.charged ?? "0.0000",
               balance: after.available,
               answeredBy: "model",
-              sources,
+              sources: allSources,
+              usedData: outcome.toolCalls.length > 0,
             }),
           });
         }

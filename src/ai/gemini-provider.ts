@@ -1,4 +1,12 @@
-import { GoogleGenAI, ThinkingLevel, type Content, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
+import {
+  FunctionCallingConfigMode,
+  GoogleGenAI,
+  ThinkingLevel,
+  type Content,
+  type GenerateContentConfig,
+  type GenerateContentResponse,
+  type Part,
+} from "@google/genai";
 import { AiProviderError, type AiProvider, type AiRequest, type AiResult, type AiStreamEvent, type AiUsage } from "./provider.js";
 
 /**
@@ -15,6 +23,10 @@ import { AiProviderError, type AiProvider, type AiRequest, type AiResult, type A
  *    -> outputTokens = candidatesTokenCount + thoughtsTokenCount
  *  - tool prompts are billed as input -> inputTokens = promptTokenCount + toolUsePromptTokenCount
  *  - stopping a request on our side does not stop Google's billing for it
+ *
+ * Tools (function calling): a model turn that asks for tools is replayed
+ * EXACTLY as received (all parts, including hidden thoughtSignature fields),
+ * as Google requires for stateless use.
  */
 
 export interface GeminiProviderOptions {
@@ -64,10 +76,23 @@ export class GeminiProvider implements AiProvider {
       throw new AiProviderError(describe(err), { cause: err });
     }
 
+    const turnParts: Part[] = [];
     try {
       for await (const chunk of stream) {
-        const text = chunk.text;
-        if (text) yield { type: "delta", text };
+        const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+        for (const part of parts) {
+          turnParts.push(part); // kept unchanged (signatures included) for replay
+          if (part.functionCall?.name) {
+            yield {
+              type: "tool_call",
+              id: part.functionCall.id,
+              name: part.functionCall.name,
+              args: (part.functionCall.args ?? {}) as Record<string, unknown>,
+            };
+          } else if (typeof part.text === "string" && part.text && !part.thought) {
+            yield { type: "delta", text: part.text };
+          }
+        }
         const usage = toUsage(chunk);
         if (usage) yield { type: "usage", usage, model: chunk.modelVersion ?? request.model };
       }
@@ -75,6 +100,7 @@ export class GeminiProvider implements AiProvider {
       if (request.signal.aborted) throw err;
       throw new AiProviderError(describe(err), { cause: err });
     }
+    yield { type: "turn", raw: { role: "model", parts: turnParts } satisfies Content };
   }
 
   private config(request: AiRequest): GenerateContentConfig {
@@ -86,15 +112,42 @@ export class GeminiProvider implements AiProvider {
     if (this.options.thinkingLevel) {
       config.thinkingConfig = { thinkingLevel: ThinkingLevel[this.options.thinkingLevel] };
     }
+    if (request.tools?.length) {
+      config.tools = [
+        {
+          functionDeclarations: request.tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parametersJsonSchema: t.parameters,
+          })),
+        },
+      ];
+      config.toolConfig = {
+        functionCallingConfig: {
+          mode: request.toolChoice === "none" ? FunctionCallingConfigMode.NONE : FunctionCallingConfigMode.AUTO,
+        },
+      };
+    }
     return config;
   }
 }
 
 function toContents(request: AiRequest): Content[] {
-  return request.messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  return request.messages.map((m): Content => {
+    switch (m.role) {
+      case "user":
+        return { role: "user", parts: [{ text: m.content }] };
+      case "assistant":
+        return { role: "model", parts: [{ text: m.content }] };
+      case "model_turn":
+        return m.raw as Content; // exactly as Gemini sent it
+      case "tool_results":
+        return {
+          role: "user",
+          parts: m.results.map((r) => ({ functionResponse: { id: r.id, name: r.name, response: r.response } })),
+        };
+    }
+  });
 }
 
 function toUsage(response: GenerateContentResponse): AiUsage | null {

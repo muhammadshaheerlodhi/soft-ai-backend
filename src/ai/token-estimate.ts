@@ -1,4 +1,4 @@
-import type { AiMessage } from "./provider.js";
+import type { AiMessage, AiToolDeclaration } from "./provider.js";
 
 /**
  * A deliberately HIGH guess of how many tokens a request will use, made BEFORE
@@ -12,10 +12,17 @@ import type { AiMessage } from "./provider.js";
 const BYTES_PER_TOKEN = 3;
 const PER_MESSAGE_OVERHEAD = 8;
 
-export function estimateInputTokens(system: string | undefined, messages: AiMessage[]): number {
-  let total = system ? Math.ceil(Buffer.byteLength(system, "utf8") / BYTES_PER_TOKEN) + PER_MESSAGE_OVERHEAD : 0;
+export function estimateTextTokens(text: string): number {
+  return Math.ceil(Buffer.byteLength(text, "utf8") / BYTES_PER_TOKEN);
+}
+
+export function estimateInputTokens(system: string | undefined, messages: AiMessage[], tools?: AiToolDeclaration[]): number {
+  let total = system ? estimateTextTokens(system) + PER_MESSAGE_OVERHEAD : 0;
   for (const m of messages) {
-    total += Math.ceil(Buffer.byteLength(m.content, "utf8") / BYTES_PER_TOKEN) + PER_MESSAGE_OVERHEAD;
+    const text =
+      m.role === "model_turn" ? JSON.stringify(m.raw) : m.role === "tool_results" ? JSON.stringify(m.results) : m.content;
+    total += estimateTextTokens(text) + PER_MESSAGE_OVERHEAD;
   }
+  if (tools?.length) total += estimateTextTokens(JSON.stringify(tools));
   return total;
 }

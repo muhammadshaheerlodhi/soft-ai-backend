@@ -12,7 +12,8 @@ It will run on Railway and use the ERP's Supabase database (its own private `sof
 > Step 3 (credit metering + request limits) - done 7 Oct 2026.
 > Step 4 (Gemini chat, streaming, chat history API) - done 7 Oct 2026; 97 automated tests pass
 > (`npm test`); tested live with real Gemini on dummy questions.
-> Step 6 (knowledge base from ERP code, rules engine, answer cache) - done 7 Oct 2026; 127 tests pass.
+> Step 6 (knowledge base from ERP code, rules engine, answer cache) - done 7 Oct 2026.
+> Step 7 (read-only company data tools, tool registry) - done 7 Oct 2026; 148 tests pass.
 
 ## Folder layout
 
@@ -73,3 +74,4 @@ soft-ai-backend/
 - [docs/04-gemini-chat.md](docs/04-gemini-chat.md)
 - [docs/05-chat-panel.md](docs/05-chat-panel.md)
 - [docs/06-knowledge-rules-cache.md](docs/06-knowledge-rules-cache.md)
+- [docs/07-data-tools.md](docs/07-data-tools.md)

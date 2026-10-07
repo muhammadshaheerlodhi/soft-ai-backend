@@ -227,7 +227,8 @@ describe("knowledge in AI answers", () => {
   it("sends the matching help text to the AI and returns its pages as sources", async () => {
     const provider = new FakeProvider({ reply: "Open [Goods Receipts](/purchasing/receipts) and link the PO." });
     const r = await ask(makeApp(provider), f.ownerA, f.orgA, "How do I record goods received for a purchase order?");
-    const sent = provider.lastRequest!.messages.at(-1)!.content;
+    const lastMsg = provider.lastRequest!.messages.at(-1)!;
+    const sent = lastMsg.role === "user" ? lastMsg.content : "";
     expect(sent).toContain("<softoras_help>");
     expect(sent).toContain("Goods Receipts");
     expect(sent).toMatch(/User question: How do I record goods received for a purchase order\?$/);
