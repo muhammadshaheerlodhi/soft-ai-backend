@@ -14,7 +14,7 @@ import { can } from "../auth/permissions.js";
  *   page                - the ERP page to show as "Related page"
  *
  * A user is only ever OFFERED the tools their role allows, so the AI cannot even
- * try the others. Step 8 adds actions (create / change) to this registry.
+ * try the others. Actions (create / change) have their own registry: src/actions/registry.ts.
  */
 
 const period = z
@@ -28,7 +28,7 @@ export interface ToolDefinition {
   parameters: z.ZodObject<z.ZodRawShape>;
   anyPermission: string[];
   sqlFunction: string;
-  page: { title: string; urlPath: string };
+  page?: { title: string; urlPath: string };
   /** Short text shown in the panel while it runs. */
   statusText: string;
 }
@@ -135,6 +135,24 @@ export const TOOLS: ToolDefinition[] = [
     page: { title: "Expenses", urlPath: "/accounting/expenses" },
     statusText: "Adding up expenses…",
   },
+  {
+    name: "find_records",
+    description:
+      "Find records and their ids, needed before proposing an action (e.g. the customer and products for an invoice). Types: customer, vendor, product, employee, leave_type, leave_request (filter by employee name and status), lead, expense_account, cash_account, bank_account, project. Without a query it lists the first ones by name.",
+    parameters: z.object({
+      type: z.enum(["customer", "vendor", "product", "employee", "leave_type", "leave_request", "lead", "expense_account", "cash_account", "bank_account", "project"]),
+      query: z.string().max(100).optional().describe("Part of the name, number or code"),
+      status: z.enum(["pending", "approved", "rejected"]).optional().describe("leave_request only"),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    // Each type needs its own permission; the database function checks it (migration 109).
+    anyPermission: [
+      "crm.view", "sales.view", "purchases.view", "accounting.view", "accounting.create",
+      "inventory.view", "hr.view", "hr.create", "projects.view",
+    ],
+    sqlFunction: "tool_find_records",
+    statusText: "Finding records…",
+  },
 ];
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
@@ -181,5 +199,12 @@ function zodToJson(t: z.ZodTypeAny): Record<string, unknown> {
   }
   if (t instanceof z.ZodBoolean) return { type: "boolean", ...description };
   if (t instanceof z.ZodEnum) return { type: "string", enum: t.options, ...description };
+  if (t instanceof z.ZodArray) {
+    const out: Record<string, unknown> = { type: "array", items: zodToJson(t.element), ...description };
+    if (t._def.minLength) out.minItems = t._def.minLength.value;
+    if (t._def.maxLength) out.maxItems = t._def.maxLength.value;
+    return out;
+  }
+  if (t instanceof z.ZodObject) return { ...toJsonSchema(t), ...description };
   throw new Error(`Unsupported tool parameter type: ${t._def.typeName}`);
 }

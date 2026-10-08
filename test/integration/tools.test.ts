@@ -176,10 +176,29 @@ describe("data tools: exact numbers", () => {
   });
 });
 
+describe("find_records (ids for actions)", () => {
+  it("finds records of this organization only, with the details needed for actions", async () => {
+    const r = await tool(f.ownerA, f.orgA, "find_records", { type: "customer", query: "ali" });
+    expect((r.response.records as { name: string }[]).map((c) => c.name)).toEqual(["Ali Traders"]); // not org B's
+    const banks = await tool(f.ownerA, f.orgA, "find_records", { type: "bank_account" });
+    expect(banks.response.records).toContainEqual(expect.objectContaining({ name: "HBL Business", account_last4: "4433", currency: "PKR" }));
+    expect(JSON.stringify(banks.response)).not.toContain("99887766554433"); // full number never sent
+    const leave = await tool(f.ownerA, f.orgA, "find_records", { type: "leave_request", status: "pending" });
+    expect(leave.response.records).toEqual([expect.objectContaining({ employee: "Usman Ali", status: "pending" })]);
+  });
+
+  it("each record type needs its own permission (checked in the database)", async () => {
+    const own = await tool(f.salesA, f.orgA, "find_records", { type: "customer" }); // sales.view: allowed
+    expect(own.ok).toBe(true);
+    const hr = await tool(f.salesA, f.orgA, "find_records", { type: "employee" });
+    expect(hr).toMatchObject({ ok: false, response: { error: "forbidden" } });
+  });
+});
+
 describe("data tools: who may see what", () => {
   it("a sales user is offered only sales and customer tools", async () => {
     const member = await loadMemberContext(service, f.orgA, f.salesA);
-    expect(toolsFor(member!).map((t) => t.name).sort()).toEqual(["find_customers", "list_unpaid_invoices", "receivables_summary", "sales_summary"]);
+    expect(toolsFor(member!).map((t) => t.name).sort()).toEqual(["find_customers", "find_records", "list_unpaid_invoices", "receivables_summary", "sales_summary"]);
   });
 
   it("a sales user cannot read cash, HR or payables (refused, nothing returned)", async () => {
@@ -301,7 +320,7 @@ describe("data questions in the chat", () => {
   it("a sales user is only OFFERED the tools their role allows", async () => {
     const provider = new FakeProvider({ reply: "ok" });
     await ask(makeApp(provider), f.salesA, f.orgA, "How much cash do we have?");
-    expect(provider.requests[0]!.tools!.map((t) => t.name).sort()).toEqual(["find_customers", "list_unpaid_invoices", "receivables_summary", "sales_summary"]);
+    expect(provider.requests[0]!.tools!.map((t) => t.name).sort()).toEqual(["find_customers", "find_records", "list_unpaid_invoices", "receivables_summary", "sales_summary"]);
   });
 
   it("if the AI still asks for a tool it is not allowed, it gets 'forbidden', not data", async () => {

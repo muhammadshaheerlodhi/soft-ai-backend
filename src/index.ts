@@ -14,6 +14,8 @@ import { registerChatRoutes } from "./chat/routes.js";
 import { FakeEmbedder, GeminiEmbedder, type Embedder } from "./ai/embedder.js";
 import { createPageDirectory } from "./chat/rules.js";
 import { createAnswerCache } from "./chat/answer-cache.js";
+import { createActionService } from "./actions/service.js";
+import { registerActionRoutes } from "./actions/routes.js";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -36,6 +38,8 @@ const meter = createStreamMeter({
   options: { timeoutMs: config.aiTimeoutMs },
 });
 
+const actions = config.actions ? createActionService({ sql, log: logger, undoMinutes: config.actions.undoMinutes }) : undefined;
+
 const app = createApp({
   sql,
   logger,
@@ -45,7 +49,8 @@ const app = createApp({
     mode: config.authJwtMode,
     secret: config.supabaseJwtSecret,
   }),
-  extendV1: (v1) =>
+  extendV1: (v1) => {
+    if (actions) registerActionRoutes(v1, actions);
     registerChatRoutes(v1, {
       sql,
       meter,
@@ -58,7 +63,9 @@ const app = createApp({
       pages: createPageDirectory(sql),
       cache: config.answerCacheTtlHours > 0 ? createAnswerCache(sql, { ttlHours: config.answerCacheTtlHours }) : undefined,
       tools: config.tools ?? undefined,
-    }),
+      actions,
+    });
+  },
 });
 
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {

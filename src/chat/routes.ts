@@ -16,7 +16,9 @@ import { buildHistory, SYSTEM_PROMPT, titleFromMessage, withKnowledge } from "./
 import { matchRule, type PageDirectory } from "./rules.js";
 import type { AnswerCache } from "./answer-cache.js";
 import { toJsonSchema, toolsFor, getTool } from "../tools/registry.js";
-import { executeToolCalls } from "../tools/execute.js";
+import { executeToolCalls, type ToolCall, type ToolResult } from "../tools/execute.js";
+import { actionsFor, getAction } from "../actions/registry.js";
+import type { ActionCard, ActionService, TurnActions } from "../actions/service.js";
 
 export interface ChatRouteOptions {
   sql: Sql;
@@ -36,6 +38,8 @@ export interface ChatRouteOptions {
   cache?: AnswerCache;
   /** Step 7: company-data tools. maxRounds = AI rounds per question (tools + final answer). */
   tools?: { maxRounds: number };
+  /** Step 8: actions the user confirms (needs tools: the AI finds records with them). */
+  actions?: ActionService;
 }
 
 const sendSchema = z.object({
@@ -101,7 +105,10 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const id = requireId(c.req.param("id"));
     if (!(await repo.getConversation(owner(c), id))) throw notFound();
     const rows = await repo.listMessages(owner(c), id, clampInt(c.req.query("limit"), 1, 200, 100));
-    return c.json({ messages: rows.map(toMessage) });
+    const cards = opts.actions
+      ? await opts.actions.listForMessages(c.get("member"), rows.filter((r) => r.role === "assistant").map((r) => r.id))
+      : new Map<string, ActionCard[]>();
+    return c.json({ messages: rows.map((m) => ({ ...toMessage(m), actions: cards.get(m.id) ?? [] })) });
   });
 
   v1.patch("/chat/conversations/:id", async (c) => {
@@ -199,7 +206,31 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     // Company-data tools: ONLY the ones this user's role allows are offered to the AI.
     const member = c.get("member");
     const userTools = opts.tools ? toolsFor(member) : [];
-    const toolDeclarations = userTools.map((t) => ({ name: t.name, description: t.description, parameters: toJsonSchema(t.parameters) }));
+    // Actions: likewise only the ones this role allows. The AI can only PROPOSE them.
+    const userActions = opts.tools && opts.actions ? actionsFor(member) : [];
+    const toolDeclarations = [...userTools, ...userActions].map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: toJsonSchema(t.parameters),
+    }));
+    const turn: TurnActions = { proposals: [], usedReadTools: false };
+    if (userActions.length && last && opts.actions) {
+      // Dates like "today" or "next Friday" need the company's own date.
+      turn.today = await opts.actions.today(me.organizationId);
+      last.content = `${last.content}\n\n(Today is ${turn.today.today}. Company currency: ${turn.today.currency}.)`;
+    }
+    const runCalls = async (calls: ToolCall[]): Promise<ToolResult[]> => {
+      const results: ToolResult[] = [];
+      for (const call of calls) {
+        if (getAction(call.name) && opts.actions) {
+          results.push(await opts.actions.propose(member, call, turn));
+        } else {
+          turn.usedReadTools = true;
+          results.push(...(await executeToolCalls({ sql: opts.sql, member, calls: [call], log })));
+        }
+      }
+      return results;
+    };
 
     // 1. HOLD credits. Not enough -> 402 here, before anything is saved or sent to the AI.
     const reference: Record<string, unknown> = { conversation_id: id, knowledge_release: retrieval.releaseVersion };
@@ -239,10 +270,18 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
 
       try {
         const outcome = await metered.run((text) => sse.writeSSE({ event: "delta", data: JSON.stringify({ text }) }), userStop.signal, {
-          executeTools: (calls) => executeToolCalls({ sql: opts.sql, member, calls, log }),
-          onToolsStart: (calls) =>
-            sse.writeSSE({ event: "status", data: JSON.stringify({ text: getTool(calls[0]?.name ?? "")?.statusText ?? "Looking that up…" }) }),
+          executeTools: runCalls,
+          onToolsStart: (calls) => {
+            const name = calls[0]?.name ?? "";
+            const text = getTool(name)?.statusText ?? getAction(name)?.statusText ?? "Looking that up…";
+            return sse.writeSSE({ event: "status", data: JSON.stringify({ text }) });
+          },
         });
+        // Proposals are saved only for a reply that finished (not when the user pressed stop).
+        const actionCards =
+          opts.actions && outcome.status === "complete" && turn.proposals.length
+            ? await opts.actions.persist(member, id, ids.assistantMessageId, turn)
+            : [];
         // Pages of the data the answer used (e.g. Invoices), after the help pages.
         const toolPages: MessageSource[] = outcome.toolCalls
           .filter((t) => t.ok)
@@ -283,6 +322,7 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
               answeredBy: "model",
               sources: allSources,
               usedData: outcome.toolCalls.length > 0,
+              actions: actionCards,
             }),
           });
         }

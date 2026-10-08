@@ -39,9 +39,13 @@ const envSchema = z
     KNOWLEDGE_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.62),
     ANSWER_CACHE_TTL_HOURS: z.coerce.number().int().min(0).max(24 * 30).default(24),
 
-    // Company-data tools (step 7): AI rounds per question (tool rounds + final answer)
+    // Company-data tools (step 7): AI rounds per question (tool rounds + final answer).
+    // 4 = look up records, propose an action, (one spare), answer.
     TOOLS_ENABLED: z.enum(["true", "false"]).default("true"),
-    TOOLS_MAX_ROUNDS: z.coerce.number().int().min(2).max(5).default(3),
+    TOOLS_MAX_ROUNDS: z.coerce.number().int().min(2).max(5).default(4),
+    // Actions (step 8): proposals the user confirms; minutes the Undo button stays
+    ACTIONS_ENABLED: z.enum(["true", "false"]).default("true"),
+    ACTION_UNDO_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(10),
 
     // Chat
     CHAT_MAX_MESSAGE_CHARS: z.coerce.number().int().min(100).max(20_000).default(4000),
@@ -104,6 +108,8 @@ export interface Config {
   answerCacheTtlHours: number;
   /** null = company-data tools off. */
   tools: { maxRounds: number } | null;
+  /** null = actions off (needs tools on: the AI finds records with them first). */
+  actions: { undoMinutes: number } | null;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -138,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     knowledge: { topK: e.KNOWLEDGE_TOP_K, minSimilarity: e.KNOWLEDGE_MIN_SIMILARITY },
     answerCacheTtlHours: e.ANSWER_CACHE_TTL_HOURS,
     tools: e.TOOLS_ENABLED === "true" ? { maxRounds: e.TOOLS_MAX_ROUNDS } : null,
+    actions: e.TOOLS_ENABLED === "true" && e.ACTIONS_ENABLED === "true" ? { undoMinutes: e.ACTION_UNDO_MINUTES } : null,
     rateLimits: {
       userPerMinute: e.RATE_USER_PER_MINUTE,
       userPerDay: e.RATE_USER_PER_DAY,
