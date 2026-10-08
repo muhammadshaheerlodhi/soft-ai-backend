@@ -21,6 +21,14 @@ export class InsufficientCreditsError extends Error {
   }
 }
 
+/** Thrown when a spending cap set by an admin is reached (monthly for the organization, or daily per user). */
+export class CreditLimitError extends Error {
+  constructor(public readonly limit: "monthly" | "user_daily") {
+    super(`Credit limit reached: ${limit}`);
+    this.name = "CreditLimitError";
+  }
+}
+
 /** Thrown when an admin has not set a price for the model (we refuse to run for free). */
 export class ModelNotPricedError extends Error {
   constructor(model: string) {
@@ -50,6 +58,9 @@ export function createSqlCreditStore(sql: Sql): CreditStore {
         return row!.id;
       } catch (err) {
         if (isDbError(err, "insufficient_credits")) throw new InsufficientCreditsError();
+        if (isDbError(err, "limit_reached")) {
+          throw new CreditLimitError((err as { detail?: string }).detail === "user_daily" ? "user_daily" : "monthly");
+        }
         throw err;
       }
     },

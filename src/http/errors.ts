@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { InsufficientCreditsError, ModelNotPricedError } from "../credits/store.js";
+import { CreditLimitError, InsufficientCreditsError, ModelNotPricedError } from "../credits/store.js";
 import { AiTimeoutError } from "../credits/metering.js";
 import { AiProviderError } from "../ai/provider.js";
 import type { AppEnv } from "./types.js";
@@ -24,6 +24,8 @@ export type ErrorCode =
   | "conflict"
   | "rate_limited"
   | "insufficient_credits"
+  | "credit_limit_reached"
+  | "payments_not_configured"
   | "ai_not_configured"
   | "ai_unavailable"
   | "ai_timeout"
@@ -54,6 +56,13 @@ export function describeError(err: unknown): DescribedError {
   if (err instanceof HTTPException) return { status: err.status as 400, code: "bad_request", message: "Bad request.", unexpected: false };
   if (err instanceof InsufficientCreditsError) {
     return { status: 402, code: "insufficient_credits", message: "No credits left. Please buy credits to continue.", unexpected: false };
+  }
+  if (err instanceof CreditLimitError) {
+    const message =
+      err.limit === "user_daily"
+        ? "You have reached your daily Soft AI limit. It resets tomorrow, or ask your admin to raise it."
+        : "Your organization has reached its monthly Soft AI limit. Ask your admin to raise it.";
+    return { status: 402, code: "credit_limit_reached", message, unexpected: false };
   }
   if (err instanceof ModelNotPricedError) {
     return { status: 503, code: "ai_not_configured", message: "Soft AI is not available right now. Please contact support.", unexpected: true };

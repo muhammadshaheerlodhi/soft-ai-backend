@@ -77,7 +77,7 @@ export async function createFixtures(admin: Sql): Promise<Fixtures> {
  * and the database refuses it (an ERP behavior, reported to Shaheer).
  */
 const ERP_TEST_TABLES = [
-  "payments", "invoices", "customers", "vendor_bills", "vendors", "bank_accounts", "journal_entry_lines", "journal_entries",
+  "activity_events", "payments", "invoices", "customers", "vendor_bills", "vendors", "bank_accounts", "journal_entry_lines", "journal_entries",
   "accounts", "product_stock", "products", "warehouses", "attendance", "leave_requests", "leave_types",
   "employees", "expenses",
 ];

@@ -16,6 +16,10 @@ import { createPageDirectory } from "./chat/rules.js";
 import { createAnswerCache } from "./chat/answer-cache.js";
 import { createActionService } from "./actions/service.js";
 import { registerActionRoutes } from "./actions/routes.js";
+import { registerCreditRoutes } from "./credits/routes.js";
+import { registerStripeWebhook } from "./credits/webhook.js";
+import { createStripeGateway } from "./credits/payments.js";
+import { createAdminRoutes } from "./admin/routes.js";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -40,16 +44,26 @@ const meter = createStreamMeter({
 
 const actions = config.actions ? createActionService({ sql, log: logger, undoMinutes: config.actions.undoMinutes }) : undefined;
 
+const payments = config.stripe
+  ? createStripeGateway({ secretKey: config.stripe.secretKey, webhookSecret: config.stripe.webhookSecret })
+  : undefined;
+const verifyToken = createTokenVerifier({
+  supabaseUrl: config.supabaseUrl,
+  mode: config.authJwtMode,
+  secret: config.supabaseJwtSecret,
+});
+
 const app = createApp({
   sql,
   logger,
   corsAllowedOrigins: config.corsAllowedOrigins,
-  verifyToken: createTokenVerifier({
-    supabaseUrl: config.supabaseUrl,
-    mode: config.authJwtMode,
-    secret: config.supabaseJwtSecret,
-  }),
+  verifyToken,
+  extendRoot: (root) => {
+    if (payments) registerStripeWebhook(root, { sql, payments });
+    root.route("/admin/v1", createAdminRoutes({ sql, verifyToken, ownerEmail: config.platformOwnerEmail }));
+  },
   extendV1: (v1) => {
+    registerCreditRoutes(v1, { sql, payments, appUrl: config.appPublicUrl });
     if (actions) registerActionRoutes(v1, actions);
     registerChatRoutes(v1, {
       sql,

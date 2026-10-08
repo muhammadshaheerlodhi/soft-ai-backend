@@ -32,4 +32,6 @@ if (-not $SkipErp) {
 Apply "$root\db\local\erp-local-fixes.sql"
 Get-ChildItem "$root\db\migrations" -Filter *.sql | Sort-Object Name | ForEach-Object { Apply $_.FullName }
 Apply "$root\db\local\enable-local-service-login.sql"
+# Placeholder prices, packs and allowance for local testing only
+Apply "$root\db\local\dev-prices.sql"
 Write-Host "`nLocal database ready."

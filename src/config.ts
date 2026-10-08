@@ -47,6 +47,14 @@ const envSchema = z
     ACTIONS_ENABLED: z.enum(["true", "false"]).default("true"),
     ACTION_UNDO_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(10),
 
+    // Buying credits (step 9). Leave the Stripe keys empty to turn buying off.
+    STRIPE_SECRET_KEY: z.string().optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().optional(),
+    // The ERP website (where Stripe sends the user back after paying).
+    APP_PUBLIC_URL: z.string().url().optional(),
+    // Optional extra platform owner for the admin panel (the ERP's own admin list is used too).
+    PLATFORM_OWNER_EMAIL: z.string().email().optional(),
+
     // Chat
     CHAT_MAX_MESSAGE_CHARS: z.coerce.number().int().min(100).max(20_000).default(4000),
     CHAT_HISTORY_MAX_MESSAGES: z.coerce.number().int().min(1).max(100).default(20),
@@ -70,6 +78,12 @@ const envSchema = z
     }
     if (env.AI_PROVIDER === "fake" && env.NODE_ENV === "production") {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["AI_PROVIDER"], message: "the fake AI is not allowed in production" });
+    }
+    if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["STRIPE_WEBHOOK_SECRET"], message: "required when STRIPE_SECRET_KEY is set" });
+    }
+    if (env.STRIPE_SECRET_KEY && !env.APP_PUBLIC_URL && !splitList(env.CORS_ALLOWED_ORIGINS)[0]) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["APP_PUBLIC_URL"], message: "required when STRIPE_SECRET_KEY is set" });
     }
     if (env.NODE_ENV === "production") {
       for (const origin of splitList(env.CORS_ALLOWED_ORIGINS)) {
@@ -110,6 +124,10 @@ export interface Config {
   tools: { maxRounds: number } | null;
   /** null = actions off (needs tools on: the AI finds records with them first). */
   actions: { undoMinutes: number } | null;
+  /** null = buying credits is off. */
+  stripe: { secretKey: string; webhookSecret: string } | null;
+  appPublicUrl: string;
+  platformOwnerEmail: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -145,6 +163,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     answerCacheTtlHours: e.ANSWER_CACHE_TTL_HOURS,
     tools: e.TOOLS_ENABLED === "true" ? { maxRounds: e.TOOLS_MAX_ROUNDS } : null,
     actions: e.TOOLS_ENABLED === "true" && e.ACTIONS_ENABLED === "true" ? { undoMinutes: e.ACTION_UNDO_MINUTES } : null,
+    stripe: e.STRIPE_SECRET_KEY && e.STRIPE_WEBHOOK_SECRET ? { secretKey: e.STRIPE_SECRET_KEY, webhookSecret: e.STRIPE_WEBHOOK_SECRET } : null,
+    appPublicUrl: (e.APP_PUBLIC_URL ?? splitList(e.CORS_ALLOWED_ORIGINS)[0] ?? "http://localhost:3000").replace(/\/+$/, ""),
+    platformOwnerEmail: e.PLATFORM_OWNER_EMAIL?.toLowerCase(),
     rateLimits: {
       userPerMinute: e.RATE_USER_PER_MINUTE,
       userPerDay: e.RATE_USER_PER_DAY,

@@ -5,7 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import type { Sql } from "./db/client.js";
 import type { Logger } from "./logger.js";
 import type { TokenVerifier } from "./auth/verify-token.js";
-import { getWalletBalance } from "./credits/wallet.js";
+import { getCreditStatus } from "./credits/routes.js";
 import { ApiError, describeError, errorResponse } from "./http/errors.js";
 import { requestContext, requireOrganization, requireUser } from "./http/middleware.js";
 import type { AppEnv } from "./http/types.js";
@@ -21,6 +21,11 @@ export interface AppDeps {
    * (step 4) and by tests.
    */
   extendV1?: (v1: Hono<AppEnv>) => void;
+  /**
+   * Routes OUTSIDE the organization checks: the Stripe webhook (Stripe's
+   * signature is the proof) and the platform admin API (its own admin check).
+   */
+  extendRoot?: (app: Hono<AppEnv>) => void;
 }
 
 /**
@@ -87,14 +92,12 @@ export function createApp(deps: AppDeps) {
     });
   });
 
-  /** Credit balance of the current organization (for the credits button). */
-  v1.get("/credits", async (c) => {
-    const wallet = await getWalletBalance(deps.sql, c.get("member").organizationId);
-    return c.json(wallet);
-  });
+  /** Credits of the current organization (credits button): balance, this month, limits, warnings. */
+  v1.get("/credits", async (c) => c.json(await getCreditStatus(deps.sql, c.get("member"), c.get("log"))));
 
   deps.extendV1?.(v1);
 
+  deps.extendRoot?.(app);
   app.route("/v1", v1);
 
   // ---------- errors ----------

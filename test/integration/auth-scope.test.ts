@@ -160,13 +160,13 @@ describe("sub-accounts", () => {
 describe("credits balance", () => {
   it("starts at zero", async () => {
     const r = await call("/v1/credits", { user: f.ownerB, org: f.orgB });
-    expect(r.body).toEqual({ balance: "0.0000", reserved: "0.0000", available: "0.0000" });
+    expect(r.body).toMatchObject({ balance: "0.0000", reserved: "0.0000", available: "0.0000", warnings: ["empty"] });
   });
 
   it("shows the organization's own balance only", async () => {
     await admin`select soft_ai.add_credits(${f.orgA}::uuid, 25, 'purchase', ${`it-buy-${f.orgA}`})`;
     const a = await call("/v1/credits", { user: f.salesA, org: f.orgA });
-    expect(a.body).toEqual({ balance: "25.0000", reserved: "0.0000", available: "25.0000" });
+    expect(a.body).toMatchObject({ balance: "25.0000", reserved: "0.0000", available: "25.0000", warnings: [] });
     const b = await call("/v1/credits", { user: f.ownerB, org: f.orgB });
     expect(b.body.balance).toBe("0.0000");
     expect((await call("/v1/credits", { user: f.ownerB, org: f.orgA })).status).toBe(403);

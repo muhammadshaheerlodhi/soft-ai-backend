@@ -157,6 +157,10 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     }
 
     // Free answers end here; everything below may cost credits.
+    // This month's plan allowance (added once per month; never blocks chatting if it fails).
+    await opts.sql`select soft_ai.grant_monthly_allowance(${me.organizationId}::uuid)`.catch((err) =>
+      log.warn({ err }, "monthly allowance could not be added"),
+    );
     // Quick check first so an organization with no credits does not even trigger a search.
     const wallet = await getWalletBalance(opts.sql, me.organizationId);
     if (Number(wallet.available) <= 0) throw new InsufficientCreditsError();
