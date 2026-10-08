@@ -210,6 +210,23 @@ SELECT pg_temp.eq((SELECT count(*) FROM soft_ai.member_context(:orgA, :userA)), 
                   'roles: deactivated member gets nothing');
 UPDATE public.organization_members SET is_active = true WHERE organization_id = :orgA AND user_id = :userA;
 
+-- 16b. Same rules as the ERP's api-auth.ts (migration 108):
+--      a permission_matrix on the role wins over role_permissions; "*" = whole module;
+--      role slug "admin" = full access.
+UPDATE public.roles SET permission_matrix = '{"sales": ["view", "create"], "crm": ["*"], "hr": []}'
+ WHERE id = 'aaaaaaaa-2222-4000-8000-000000000001';
+SELECT pg_temp.check((SELECT permissions = ARRAY['crm.*', 'sales.create', 'sales.view'] AND NOT is_owner
+                        FROM soft_ai.member_context(:orgA, :userA)), 'roles: permission matrix used (role_permissions ignored)');
+SELECT pg_temp.check(soft_ai.permission_allows(ARRAY['crm.*'], ARRAY['crm.delete']), 'roles: "crm.*" allows crm.delete');
+SELECT pg_temp.check(NOT soft_ai.permission_allows(ARRAY['crm.*', 'sales.view'], ARRAY['hr.view', 'sales.create']),
+                     'roles: matrix does not allow other modules or actions');
+UPDATE public.roles SET permission_matrix = '{}' WHERE id = 'aaaaaaaa-2222-4000-8000-000000000001';
+SELECT pg_temp.check((SELECT permissions = ARRAY['soft_ai_test.view'] FROM soft_ai.member_context(:orgA, :userA)),
+                     'roles: empty matrix falls back to role_permissions');
+UPDATE public.roles SET slug = 'admin' WHERE id = 'aaaaaaaa-2222-4000-8000-000000000001';
+SELECT pg_temp.check((SELECT is_owner FROM soft_ai.member_context(:orgA, :userA)), 'roles: "admin" role has full access');
+UPDATE public.roles SET slug = 'soft-ai-sales-test', permission_matrix = NULL WHERE id = 'aaaaaaaa-2222-4000-8000-000000000001';
+
 -- ======================= CHAT HISTORY =======================
 
 -- 17. A chat and its messages; the chat list fields update automatically.

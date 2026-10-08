@@ -1,6 +1,5 @@
 # Rebuilds the LOCAL test database from scratch-safe steps. Local only.
-#   1. ERP migrations, one by one (the ERP repo has duplicate numbers 013/016/017,
-#      which the Supabase CLI refuses, so we apply them ourselves in name order)
+#   1. ERP migrations, one by one, in name order
 #   2. Soft AI migrations 100+
 #   3. Local-only login for the restricted backend role
 # Usage:
@@ -29,8 +28,6 @@ function Apply([string]$file) {
 if (-not $SkipErp) {
   Get-ChildItem $ErpMigrations -Filter *.sql | Sort-Object Name | ForEach-Object { Apply $_.FullName }
 }
-# Local-only fixes for problems in the ERP's own SQL (see the file; reported to Shaheer)
-Apply "$root\db\local\erp-local-fixes.sql"
 Get-ChildItem "$root\db\migrations" -Filter *.sql | Sort-Object Name | ForEach-Object { Apply $_.FullName }
 Apply "$root\db\local\enable-local-service-login.sql"
 Write-Host "`nLocal database ready."

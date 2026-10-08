@@ -34,6 +34,14 @@ describe("can()", () => {
     expect(can(member({ permissions: new Set(["sales.view"]) }), "sales.viewx")).toBe(false);
   });
 
+  it('treats "module.*" (permission matrix) as every action of that module only', () => {
+    const m = member({ permissions: new Set(["crm.*"]) });
+    expect(can(m, "crm.view")).toBe(true);
+    expect(can(m, "crm.delete")).toBe(true);
+    expect(can(m, "sales.view")).toBe(false);
+    expect(can(member({ permissions: new Set(["crm.*"]) }), "crmx.view")).toBe(false);
+  });
+
   it("fails loudly on a badly written permission key in our code", () => {
     expect(() => can(member(), "sales")).toThrow(/Invalid permission key/);
     expect(() => can(member(), "*")).toThrow(/Invalid permission key/);
