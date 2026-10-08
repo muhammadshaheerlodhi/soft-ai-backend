@@ -177,17 +177,26 @@ export function createActionService(deps: { sql: Sql; log: Logger; undoMinutes: 
         const problem = def.check?.(params, refs);
         if (problem) return fail("invalid_argument", problem);
         const preview = def.preview(params, { refs, currency: turn.today.currency });
+        // Will it run straight away? (Final decision when the reply ends - see needsConfirmation;
+        // only a second proposal in the same reply can still change it to "needs Confirm".)
+        const runsNow = !needsConfirmation({ ...turn, proposals: [...turn.proposals, { def, params, preview, refs }] }, def.risk);
         turn.proposals.push({ def, params, preview, refs });
         return {
           id: call.id,
           name: call.name,
           ok: true,
-          response: {
-            status: "proposed",
-            summary: preview.title,
-            note:
-              "NOT done yet. The user sees a card with these details and runs it with the Confirm button (some low-risk actions run straight away and can be undone). Tell the user briefly what you prepared and ask them to check it. Never say it is done.",
-          },
+          response: runsNow
+            ? {
+                status: "will_save_after_your_reply",
+                summary: preview.title,
+                note: "It is saved right after your reply, and the user can undo it for a few minutes. Say in one sentence what is being saved. Do not ask them to confirm.",
+              }
+            : {
+                status: "proposed",
+                summary: preview.title,
+                note:
+                  "NOT done yet. The user sees a card with these details and must press Confirm. Tell the user briefly what you prepared and ask them to check and confirm it. Never say it is done.",
+              },
         };
       } catch (err) {
         const message = String((err as Error).message ?? "");

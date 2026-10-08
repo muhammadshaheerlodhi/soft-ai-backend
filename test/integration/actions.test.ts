@@ -207,6 +207,9 @@ describe("propose -> confirm -> run in the ERP -> check -> undo", () => {
     const provider = new FakeProvider({ toolRounds: [[{ name: "create_customer", args: { name: "New Co", phone: "0300-0000000" } }]], reply: "Done preparing." });
     const r = await ask(makeApp(provider), f.ownerA, "Add customer New Co, phone 0300-0000000");
     expect(r.actions[0]).toMatchObject({ name: "create_customer", needsConfirmation: false, risk: "low" });
+    // The AI is told it will be saved (so it does not ask the user to press Confirm).
+    const told = provider.requests[1]!.messages.at(-1) as { results: { response: Record<string, unknown> }[] };
+    expect(told.results[0]!.response).toMatchObject({ status: "will_save_after_your_reply" });
   });
 
   it("...but needs Confirm when the AI read company data in the same reply (text in records cannot trigger changes)", async () => {
