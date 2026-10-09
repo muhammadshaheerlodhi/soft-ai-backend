@@ -182,6 +182,15 @@ describe("browser rules (CORS)", () => {
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe(TEST_ENV.allowedOrigin);
   });
 
+  it("allows every method the panels use (admin settings use PUT)", async () => {
+    const res = await app.request("/admin/v1/support-calls/settings", {
+      method: "OPTIONS",
+      headers: { Origin: TEST_ENV.allowedOrigin, "Access-Control-Request-Method": "PUT" },
+    });
+    const allowed = (res.headers.get("Access-Control-Allow-Methods") ?? "").split(",").map((m) => m.trim());
+    for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE"]) expect(allowed).toContain(m);
+  });
+
   it("does not allow other websites", async () => {
     const res = await app.request("/v1/me", {
       method: "OPTIONS",

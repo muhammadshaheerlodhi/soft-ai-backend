@@ -79,3 +79,4 @@ soft-ai-backend/
 - [docs/07-data-tools.md](docs/07-data-tools.md)
 - [docs/08-actions.md](docs/08-actions.md)
 - [docs/09-credits-billing.md](docs/09-credits-billing.md)
+- [docs/10-support-calls.md](docs/10-support-calls.md)

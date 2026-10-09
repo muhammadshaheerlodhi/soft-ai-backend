@@ -43,7 +43,7 @@ export function createApp(deps: AppDeps) {
     cors({
       // Only the ERP's own website may call this API from a browser.
       origin: (origin) => (allowed.has(origin) ? origin : null),
-      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowHeaders: ["Authorization", "Content-Type", "X-Organization-Id"],
       exposeHeaders: ["X-Request-Id"],
       // We use bearer tokens, not cookies, so a malicious site cannot make
