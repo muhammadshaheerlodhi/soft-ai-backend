@@ -47,3 +47,8 @@ calls), then about $0.001 per person per minute (voice only).
 The backend did not allow PUT requests from the browser (CORS), so saving admin
 settings (also the Soft AI credit limits, plans and packs from step 9) failed in
 the browser. Fixed, with a test.
+
+Real Daily test (9 Oct): the key works and the private room is created, but
+joining fails with `account-missing-payment-method`. Daily needs a card on the
+account (the free 10,000 minutes still apply). Now, if joining fails, the call
+is ended on both sides and the customer gets a clear message and the callback form.
