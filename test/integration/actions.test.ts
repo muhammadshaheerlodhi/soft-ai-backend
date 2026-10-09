@@ -116,6 +116,14 @@ async function post(app: App, user: string, path: string, body?: unknown) {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> & { error?: { message: string } } };
 }
 
+/** Runs SQL as a logged-in ERP user (the ERP's own rules, e.g. who may approve leave, see auth.uid()). */
+async function asUser(userId: string, run: (tx: Sql) => Promise<unknown>) {
+  await admin.begin(async (tx) => {
+    await tx`select set_config('request.jwt.claims', ${JSON.stringify({ sub: userId, role: "authenticated" })}, true)`;
+    await run(tx as unknown as Sql);
+  });
+}
+
 const invoiceArgs = () => ({ customer_id: ids.ali, items: [{ product_id: ids.rod, quantity: 2, unit_price: 150, tax_rate: 10 }] });
 
 /** What the ERP's invoice service does after Confirm (simplified): insert a draft. */
@@ -188,6 +196,12 @@ describe("propose -> confirm -> run in the ERP -> check -> undo", () => {
     expect(done.body).toMatchObject({ status: "executed", result: { recordId: invoiceId, total: "330.00", pagePath: `/sales/invoices/${invoiceId}` } });
     expect(done.body.undoUntil).toBeTruthy();
     expect((done.body.result as { number: string }).number).toBeTruthy(); // ERP numbering trigger
+    // Logged in the ERP's Activity page by the backend (category "ai").
+    const [act] = await admin<{ description: string; category: string }[]>`
+      select description, category from public.activity_events
+       where organization_id = ${f.orgA} and event_type = 'ai.action.create_draft_invoice' and entity_id = ${invoiceId}`;
+    expect(act).toMatchObject({ category: "ai" });
+    expect(act!.description).toMatch(/^Soft AI: Create draft invoice \(/);
 
     // Chat history shows the card with its outcome.
     const hist = await app.request(`/v1/chat/conversations/${r.conversationId}/messages`, { headers: await headers(f.ownerA) });
@@ -246,10 +260,10 @@ describe("propose -> confirm -> run in the ERP -> check -> undo", () => {
     const r2 = await ask(app, f.ownerA, "Approve Usman's leave");
     const card2 = r2.actions[0]!;
     await post(app, f.ownerA, `/actions/${card2.id}/start`);
-    await admin`update public.leave_requests set status = 'approved', approved_at = now() where id = ${ids.usmanLeave}`;
+    await asUser(f.ownerA, (tx) => tx`update public.leave_requests set status = 'approved', approved_at = now() where id = ${ids.usmanLeave}`);
     expect((await post(app, f.ownerA, `/actions/${card2.id}/result`, { ok: true, recordId: ids.usmanLeave })).body).toMatchObject({ status: "executed" });
     expect((await post(app, f.ownerA, `/actions/${card2.id}/undo/start`)).body).toMatchObject({ kind: "restore_status", previousStatus: "pending" });
-    await admin`update public.leave_requests set status = 'pending', approved_at = null where id = ${ids.usmanLeave}`;
+    await asUser(f.ownerA, (tx) => tx`update public.leave_requests set status = 'pending', approved_at = null where id = ${ids.usmanLeave}`);
     expect((await post(app, f.ownerA, `/actions/${card2.id}/undo/result`, { ok: true })).body).toMatchObject({ status: "undone" });
 
     // An already-approved request cannot be proposed again.

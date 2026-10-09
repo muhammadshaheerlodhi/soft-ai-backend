@@ -30,6 +30,9 @@ export interface CreditStatus {
   monthlyLimit: string | null;
   userDayUsed: string;
   userDailyLimit: string | null;
+  /** Monthly credits that expire within 30 days, and the first expiry date. */
+  expiring30d: string;
+  nextExpiry: string | null;
   warnings: string[];
 }
 
@@ -37,6 +40,7 @@ export interface CreditStatus {
 export async function getCreditStatus(sql: Sql, member: MemberContext, log?: Logger): Promise<CreditStatus> {
   try {
     await sql`select soft_ai.grant_monthly_allowance(${member.organizationId}::uuid)`;
+    await sql`select soft_ai.refresh_wallet(${member.organizationId}::uuid)`; // remove expired monthly credits
   } catch (err) {
     log?.warn({ err }, "monthly allowance could not be added"); // never block the balance
   }
@@ -52,6 +56,8 @@ export async function getCreditStatus(sql: Sql, member: MemberContext, log?: Log
     monthlyLimit: (s.monthly_limit as string | null) ?? null,
     userDayUsed: String(s.user_day_used),
     userDailyLimit: (s.user_daily_limit as string | null) ?? null,
+    expiring30d: String(s.expiring_30d ?? "0.0000"),
+    nextExpiry: (s.next_expiry as string | null) ?? null,
     warnings: (s.warnings as string[]) ?? [],
   };
 }

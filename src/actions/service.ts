@@ -122,6 +122,20 @@ export function createActionService(deps: { sql: Sql; log: Logger; undoMinutes: 
     return row;
   }
 
+  /** One entry in the ERP's Activity page (written by the database, category "ai"). Never blocks the action. */
+  async function logActivity(member: MemberContext, row: ActionRow, kind: "done" | "undo", recordId: string | null, number?: string | null) {
+    const def = getAction(row.action_name);
+    const title = row.preview?.title ?? row.action_name;
+    const description = kind === "done" ? `Soft AI: ${title}${number ? ` (${number})` : ""}` : `Soft AI: undid "${title}"`;
+    try {
+      await sql`select soft_ai.log_action_activity(${member.organizationId}::uuid, ${member.userId}::uuid,
+                  ${`ai.action.${row.action_name}${kind === "undo" ? ".undo" : ""}`}, ${description},
+                  ${def?.record ?? null}, ${recordId}::uuid, ${row.id}::uuid)`;
+    } catch (err) {
+      deps.log.warn({ err, actionId: row.id }, "could not write the Activity entry");
+    }
+  }
+
   function toCard(row: ActionRow): ActionCard {
     const def = getAction(row.action_name);
     const recordId = row.result?.record_id;
@@ -321,6 +335,7 @@ export function createActionService(deps: { sql: Sql; log: Logger; undoMinutes: 
         returning id, action_name, params, risk_level, confirmation_required, status, result, undo_data,
                   undo_until, error_message, expires_at, preview, message_id`;
       if (!r) throw new ApiError(409, "conflict", "This action was already handled.");
+      await logActivity(member, r, "done", recordId, state.number ?? null);
       return toCard(r);
     },
 
@@ -383,6 +398,7 @@ export function createActionService(deps: { sql: Sql; log: Logger; undoMinutes: 
         returning id, action_name, params, risk_level, confirmation_required, status, result, undo_data,
                   undo_until, error_message, expires_at, preview, message_id`;
       if (!r) throw new ApiError(409, "conflict", "This action was already handled.");
+      await logActivity(member, r, "undo", row.undo_data.record_id);
       return toCard(r);
     },
   };

@@ -34,8 +34,8 @@ itself: the ERP's **own** code saves the change, with the user's own login.
 | create_purchase_order | purchases.create | medium | delete draft |
 | create_expense (pending) | accounting.create | medium | delete |
 | create_leave_request | hr.create | low | delete |
-| approve_leave_request | hr.approve or hr.edit | medium | back to pending |
-| reject_leave_request | hr.approve or hr.edit | medium | back to pending |
+| approve_leave_request | hr.approve | medium | back to pending |
+| reject_leave_request | hr.approve | medium | back to pending |
 | create_task | projects.create | low | delete |
 | create_product | inventory.create | low | delete |
 

@@ -16,13 +16,13 @@ function localUrl(name: string, fallback: string): string {
 
 export const TEST_ENV = {
   /** Full-power local connection, used ONLY to create and remove test data. */
-  adminDatabaseUrl: localUrl("TEST_ADMIN_DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:54322/postgres"),
+  adminDatabaseUrl: localUrl("TEST_ADMIN_DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:57322/postgres"),
   /** The restricted role the real backend uses. The app under test uses this. */
   serviceDatabaseUrl: localUrl(
     "TEST_SERVICE_DATABASE_URL",
-    "postgres://soft_ai_service:local-dev-only@127.0.0.1:54322/postgres",
+    "postgres://soft_ai_service:local-dev-only@127.0.0.1:57322/postgres",
   ),
-  supabaseUrl: "http://127.0.0.1:54321",
+  supabaseUrl: "http://127.0.0.1:57321",
   /** Our own test signing secret; the app under test is configured with it. */
   jwtSecret: "soft-ai-test-secret-not-used-anywhere-real-0123456789",
   allowedOrigin: "http://localhost:3000",

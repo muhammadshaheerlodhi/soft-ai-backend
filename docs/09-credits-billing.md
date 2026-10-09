@@ -66,16 +66,20 @@ Live (local ERP): Credits window (overview, history), admin page (summary, compa
 add 10 credits with reason) -> ledger + Activity page entry. Buying is off locally
 (no Stripe keys) and says so.
 
-## 7. Before going live (needs Shaheer)
+## 7. Shaheer's decisions (9 Oct 2026) - done (migration 111)
 
-1. Pack sizes and prices, monthly credits per plan, credit price vs Google cost
-   (current local values are placeholders).
-2. Which Stripe account receives credit payments (platform account assumed).
-3. Stripe: add the webhook endpoint `https://<soft-ai>/webhooks/stripe` for
-   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
-   `checkout.session.async_payment_failed`, `checkout.session.expired`; put the keys in Railway.
-4. Rollover of unused monthly credits: keep (now) or expire monthly.
-5. A real test payment with Stripe test keys (Tauseef's or Shaheer's test account).
+| Question | Decision | Built |
+|---|---|---|
+| Packs | 1,000 credits $25, 2,000 $50, 3,000 $75 | packs set; admin can change |
+| Monthly credits | Free Trial 50, Pro 100, White Label 200 | plan allowances set |
+| Unused monthly credits | carry over, expire after 1 year | credit lots: monthly credits used first (oldest first), what is left expires after 1 year (ledger "expiry" + Activity); bought credits never expire; Credits window shows credits expiring in the next 30 days |
+| Stripe account | Softoras main account | - |
+
+Still before going live: Stripe webhook endpoint `https://<soft-ai>/webhooks/stripe`
+(`checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+`checkout.session.async_payment_failed`, `checkout.session.expired`), keys in Railway,
+one real test payment with Stripe test keys. Production credit rate per model
+(credits per 1,000 tokens) to be set by the admin.
 
 ## 8. ERP problems found in this step
 
@@ -83,3 +87,9 @@ add 10 credits with reason) -> ledger + Activity page entry. Buying is off local
   database built from the migrations only the owner e-mail can open /admin.
 - Dashboard counts deleted invoices and drafts in "Total Revenue" and lists
   deleted invoices under "Recent Invoices".
+
+## 9. Local setup note (9 Oct 2026)
+
+Windows reserved the ports 54230-54429 after a restart, so the local Supabase now
+runs on 57321 (API) and 57322 (database). Only local files changed
+(local-dev/supabase/config.toml, .env files, test helper).

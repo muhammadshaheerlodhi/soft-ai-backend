@@ -12,13 +12,4 @@ ON CONFLICT (model, effective_from) DO UPDATE
   SET provider_input_usd_per_1m = EXCLUDED.provider_input_usd_per_1m,
       provider_output_usd_per_1m = EXCLUDED.provider_output_usd_per_1m;
 
--- Placeholder credit packs (sizes and prices: Shaheer's decision).
-INSERT INTO soft_ai.credit_packs (id, name, credits, price_cents, currency, sort_order) VALUES
-  ('pack_1000',  'Starter 1,000 credits',   1000, 1500, 'usd', 1),
-  ('pack_5000',  'Business 5,000 credits',  5000, 6500, 'usd', 2),
-  ('pack_20000', 'Pro 20,000 credits',     20000, 22000, 'usd', 3)
-ON CONFLICT (id) DO NOTHING;
-
--- Placeholder monthly allowance for the trial plan.
-INSERT INTO soft_ai.plan_allowances (plan_slug, monthly_credits) VALUES ('trial', 50)
-ON CONFLICT (plan_slug) DO NOTHING;
+-- Credit packs and monthly credits per plan: Shaheer's decisions, in migration 111.

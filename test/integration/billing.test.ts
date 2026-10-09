@@ -250,6 +250,35 @@ describe("buying credits with Stripe", () => {
   });
 });
 
+describe("monthly credits expire after 1 year (Shaheer, 9 Oct 2026)", () => {
+  it("spending uses monthly credits first; what is left expires after a year; bought credits stay", async () => {
+    const org = f.orgS;
+    const start = await balance(org);
+    await service`select soft_ai.add_credits(${org}::uuid, 30, 'allowance', ${`allowance:test-${org}`})`;
+    await service`select soft_ai.add_credits(${org}::uuid, 100, 'purchase', ${`buy:test-${org}`})`;
+    await spend(org, f.ownerS, "20"); // taken from the monthly lot first -> 10 left there
+
+    const lots = await admin<{ source: string; remaining: string; expires: boolean }[]>`
+      select source, remaining::text, expires_at is not null as expires from soft_ai.credit_lots
+       where organization_id = ${org} and source in ('allowance', 'purchase') order by id`;
+    expect(lots).toEqual([
+      { source: "allowance", remaining: "10.0000", expires: true },
+      { source: "purchase", remaining: "100.0000", expires: false },
+    ]);
+    expect((await call("GET", "/v1/credits", f.ownerS, org)).body.expiring30d).toBe("0.0000"); // a year away
+
+    // A year later: the 10 unused monthly credits expire, the bought 100 stay.
+    await admin`update soft_ai.credit_lots set expires_at = now() - interval '1 second'
+                 where organization_id = ${org} and source = 'allowance'`;
+    await call("GET", "/v1/credits", f.ownerS, org); // any wallet use removes expired credits
+    expect(await balance(org)).toBe(start + 130 - 20 - 10);
+    const [exp] = await admin<{ amount: string }[]>`select amount::text from soft_ai.ledger where organization_id = ${org} and entry_type = 'expiry'`;
+    expect(exp!.amount).toBe("-10.0000");
+    expect(await admin`select 1 from public.activity_events where organization_id = ${org} and event_type = 'credits.expiry'`).toHaveLength(1);
+    expect(await service`select * from soft_ai.check_lot_integrity()`).toHaveLength(0); // lots always add up to the balance
+  });
+});
+
 describe("agency -> sub-account credits", () => {
   it("the agency owner sees sub-accounts and sends credits once per request id", async () => {
     const list = await call("GET", "/v1/credits/sub-accounts", f.ownerA, f.orgA);
