@@ -14,6 +14,7 @@ import { formatKnowledgeForPrompt, retrieveKnowledge, type RetrievalResult } fro
 import { createChatRepository, type ConversationRow, type MessageRow, type MessageSource, type Owner } from "./repository.js";
 import { buildHistory, SYSTEM_PROMPT, titleFromMessage, withKnowledge } from "./prompt.js";
 import { matchRule, type PageDirectory } from "./rules.js";
+import { capabilitiesReply, isCapabilitiesQuestion } from "./capabilities.js";
 import type { AnswerCache } from "./answer-cache.js";
 import { toJsonSchema, toolsFor, getTool } from "../tools/registry.js";
 import { executeToolCalls, type ToolCall, type ToolResult } from "../tools/execute.js";
@@ -144,6 +145,14 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const pageContext = body.pageContext ?? {};
 
     // ---- A. Rules engine: common commands, answered by our own code (free) ----
+    const askedCapabilities = isCapabilitiesQuestion(body.content);
+    if (askedCapabilities) {
+      return sendInstantAnswer(c, repo, me, id, isFirstMessage, body.content, pageContext, {
+        answeredBy: "rules",
+        text: capabilitiesReply(c.get("member"), askedCapabilities, { tools: Boolean(opts.tools), actions: Boolean(opts.tools && opts.actions) }),
+        sources: [],
+      });
+    }
     if (opts.pages) {
       const rule = matchRule(body.content, await opts.pages.pagesFor(c.get("member")));
       if (rule) {
