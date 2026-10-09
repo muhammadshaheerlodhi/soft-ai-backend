@@ -55,6 +55,10 @@ const envSchema = z
     // Optional extra platform owner for the admin panel (the ERP's own admin list is used too).
     PLATFORM_OWNER_EMAIL: z.string().email().optional(),
 
+    // "Talk to a person" calls (Daily.co voice rooms). Without a key: test mode locally, off in production.
+    DAILY_API_KEY: z.string().optional(),
+    CALLS_ENABLED: z.enum(["true", "false"]).default("true"),
+
     // Chat
     CHAT_MAX_MESSAGE_CHARS: z.coerce.number().int().min(100).max(20_000).default(4000),
     CHAT_HISTORY_MAX_MESSAGES: z.coerce.number().int().min(1).max(100).default(20),
@@ -128,6 +132,8 @@ export interface Config {
   stripe: { secretKey: string; webhookSecret: string } | null;
   appPublicUrl: string;
   platformOwnerEmail: string | undefined;
+  /** null = calls off. "fake" = test mode (no real audio; never in production). */
+  calls: { provider: "daily"; apiKey: string } | { provider: "fake" } | null;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -166,6 +172,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     stripe: e.STRIPE_SECRET_KEY && e.STRIPE_WEBHOOK_SECRET ? { secretKey: e.STRIPE_SECRET_KEY, webhookSecret: e.STRIPE_WEBHOOK_SECRET } : null,
     appPublicUrl: (e.APP_PUBLIC_URL ?? splitList(e.CORS_ALLOWED_ORIGINS)[0] ?? "http://localhost:3000").replace(/\/+$/, ""),
     platformOwnerEmail: e.PLATFORM_OWNER_EMAIL?.toLowerCase(),
+    calls:
+      e.CALLS_ENABLED !== "true"
+        ? null
+        : e.DAILY_API_KEY
+          ? { provider: "daily", apiKey: e.DAILY_API_KEY }
+          : e.NODE_ENV === "production"
+            ? null
+            : { provider: "fake" },
     rateLimits: {
       userPerMinute: e.RATE_USER_PER_MINUTE,
       userPerDay: e.RATE_USER_PER_DAY,

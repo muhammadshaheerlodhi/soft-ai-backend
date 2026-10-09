@@ -20,6 +20,9 @@ import { registerCreditRoutes } from "./credits/routes.js";
 import { registerStripeWebhook } from "./credits/webhook.js";
 import { createStripeGateway } from "./credits/payments.js";
 import { createAdminRoutes } from "./admin/routes.js";
+import { DailyCallProvider, FakeCallProvider } from "./calls/provider.js";
+import { createCallService } from "./calls/service.js";
+import { createCallEvents, registerCallRoutes } from "./calls/routes.js";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -47,6 +50,20 @@ const actions = config.actions ? createActionService({ sql, log: logger, undoMin
 const payments = config.stripe
   ? createStripeGateway({ secretKey: config.stripe.secretKey, webhookSecret: config.stripe.webhookSecret })
   : undefined;
+// "Talk to a person" calls: rooms on Daily.co (or test mode locally without a key).
+const calls = config.calls
+  ? {
+      service: createCallService({
+        sql,
+        log: logger,
+        provider: config.calls.provider === "daily" ? new DailyCallProvider(config.calls.apiKey) : new FakeCallProvider(),
+      }),
+      events: createCallEvents(sql, logger),
+    }
+  : undefined;
+// Calls nobody answered in time become "missed" (also checked on every call request).
+if (calls) setInterval(() => void calls.service.sweep().catch((err) => logger.warn({ err }, "call sweep failed")), 10_000).unref();
+
 const verifyToken = createTokenVerifier({
   supabaseUrl: config.supabaseUrl,
   mode: config.authJwtMode,
@@ -60,10 +77,11 @@ const app = createApp({
   verifyToken,
   extendRoot: (root) => {
     if (payments) registerStripeWebhook(root, { sql, payments });
-    root.route("/admin/v1", createAdminRoutes({ sql, verifyToken, ownerEmail: config.platformOwnerEmail }));
+    root.route("/admin/v1", createAdminRoutes({ sql, verifyToken, ownerEmail: config.platformOwnerEmail, calls }));
   },
   extendV1: (v1) => {
     registerCreditRoutes(v1, { sql, payments, appUrl: config.appPublicUrl });
+    if (calls) registerCallRoutes(v1, { sql, calls: calls.service });
     if (actions) registerActionRoutes(v1, actions);
     registerChatRoutes(v1, {
       sql,

@@ -6,6 +6,8 @@ import { ApiError } from "../http/errors.js";
 import { requireUser } from "../http/middleware.js";
 import type { AppEnv } from "../http/types.js";
 import { isUuid } from "../lib/uuid.js";
+import type { CallService } from "../calls/service.js";
+import { registerAdminCallRoutes, type CallEvents } from "../calls/routes.js";
 
 /**
  * Soft AI admin panel API, for the ERP's PLATFORM admins (Shaheer's team),
@@ -59,7 +61,13 @@ const packSchema = z
   })
   .strict();
 
-export function createAdminRoutes(opts: { sql: Sql; verifyToken: TokenVerifier; ownerEmail?: string }) {
+export function createAdminRoutes(opts: {
+  sql: Sql;
+  verifyToken: TokenVerifier;
+  ownerEmail?: string;
+  /** "Talk to a person" calls (migration 112). */
+  calls?: { service: CallService; events: CallEvents };
+}) {
   const { sql } = opts;
   const admin = new Hono<AdminEnv>();
 
@@ -166,6 +174,14 @@ export function createAdminRoutes(opts: { sql: Sql; verifyToken: TokenVerifier; 
                 ${b.currency}, ${b.isActive}, ${b.sortOrder}::int)`;
     return c.json({ ok: true });
   });
+
+  if (opts.calls) {
+    registerAdminCallRoutes(admin as never, {
+      calls: opts.calls.service,
+      events: opts.calls.events,
+      canChange: (role) => CAN_CHANGE.includes(role as AdminRole),
+    });
+  }
 
   return admin;
 }
