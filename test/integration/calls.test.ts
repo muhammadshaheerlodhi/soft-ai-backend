@@ -48,7 +48,8 @@ beforeAll(async () => {
 afterAll(async () => {
   if (savedSettings) {
     await admin`update soft_ai.support_call_settings set enabled = ${savedSettings.enabled as boolean}, work_days = ${savedSettings.work_days as number[]},
-                  start_time = ${savedSettings.start_time as string}, end_time = ${savedSettings.end_time as string}`;
+                  start_time = ${savedSettings.start_time as string}, end_time = ${savedSettings.end_time as string},
+                  monthly_limit_minutes = ${(savedSettings.monthly_limit_minutes as number | null) ?? null}`;
   }
   if (f) {
     await admin`delete from public.platform_admins where user_id in ${admin([f.ownerB, f.stranger])}`;
@@ -149,6 +150,46 @@ describe("a call from ringing to the end", () => {
     expect((await call("GET", `/v1/support-calls/${r.body.callId}`, f.salesA, f.orgA)).status).toBe(404);
     expect((await call("GET", `/v1/support-calls/${r.body.callId}`, f.ownerB, f.orgB)).status).toBe(404);
     await call("POST", `/v1/support-calls/${r.body.callId}/hang-up`, f.ownerA, f.orgA);
+  });
+});
+
+describe("monthly limit (stay inside Daily's free minutes)", () => {
+  it("calls switch off once this month's minutes reach the limit; the admin sees the usage", async () => {
+    // A finished 60-minute call this month: caller 60 min + admin 59 min = 119 participant-minutes.
+    const [used] = await admin`
+      insert into soft_ai.support_calls (organization_id, caller_user_id, plan_slug, status, room_name, room_url,
+                                         created_at, ring_until, answered_at, ended_at, ended_by)
+      values (${f.orgA}, ${f.salesA}, 'pro', 'ended', ${`softoras-limit-${Date.now()}`}, 'https://x.daily.co/limit',
+              now() - interval '60 minutes', now() - interval '59 minutes', now() - interval '59 minutes', now(), 'agent')
+      returning id`;
+    try {
+      await admin`update soft_ai.support_call_settings set monthly_limit_minutes = 100`;
+      expect((await call("GET", "/v1/support-calls/eligibility", f.ownerA, f.orgA)).body).toMatchObject({ ok: false, reason: "limit" });
+      const r = await start();
+      expect(r.status).toBe(403);
+      expect(r.body.error.message).toContain("request a callback");
+
+      const usage = (await call("GET", "/admin/v1/support-calls/usage", f.ownerB)).body;
+      expect(usage.usedMinutes).toBeGreaterThanOrEqual(119);
+      expect(usage).toMatchObject({ limitMinutes: 100, freeMinutes: 10000 });
+      expect((await call("GET", "/v1/support-calls/usage", f.ownerA, f.orgA)).status).toBe(404); // customers cannot see it
+
+      // No limit -> calls are allowed again.
+      await admin`update soft_ai.support_call_settings set monthly_limit_minutes = null`;
+      expect((await call("GET", "/v1/support-calls/eligibility", f.ownerA, f.orgA)).body).toMatchObject({ ok: true });
+    } finally {
+      await admin`delete from soft_ai.support_calls where id = ${used!.id}`;
+      await admin`update soft_ai.support_call_settings set monthly_limit_minutes = 9000`;
+    }
+  });
+
+  it("the limit is a setting; it cannot be set below 100 minutes", async () => {
+    const settings = (await call("GET", "/admin/v1/support-calls/settings", f.stranger)).body;
+    expect(settings.monthlyLimitMinutes).toBe(9000);
+    expect((await call("PUT", "/admin/v1/support-calls/settings", f.stranger, undefined, { ...settings, monthlyLimitMinutes: 5 })).status).toBe(400);
+    const saved = await call("PUT", "/admin/v1/support-calls/settings", f.stranger, undefined, { ...settings, monthlyLimitMinutes: 8000 });
+    expect(saved.body.monthlyLimitMinutes).toBe(8000);
+    await call("PUT", "/admin/v1/support-calls/settings", f.stranger, undefined, settings);
   });
 });
 

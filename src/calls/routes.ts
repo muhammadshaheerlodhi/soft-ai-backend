@@ -81,6 +81,7 @@ const settingsSchema = z
     endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     ringSeconds: z.number().int().min(15).max(300),
     maxMinutes: z.number().int().min(5).max(240),
+    monthlyLimitMinutes: z.number().int().min(100).max(10_000_000).nullable(),
   })
   .strict()
   .refine((s) => s.startTime < s.endTime, "The end time must be after the start time.")
@@ -92,7 +93,8 @@ const settingsSchema = z
  *   GET  /support-calls?before=       call log
  *   POST /support-calls/:id/answer    first admin wins; returns the voice room + token
  *   POST /support-calls/:id/end       the admin who answered ends the call
- *   GET/PUT /support-calls/settings   plans, hours, ring time (owner / super admin / billing manager)
+ *   GET/PUT /support-calls/settings   plans, hours, ring time, monthly limit (owner / super admin / billing manager)
+ *   GET  /support-calls/usage         call minutes used this month vs the limit
  */
 export function registerAdminCallRoutes(
   admin: Hono<AppEnv & { Variables: AppEnv["Variables"] & { adminRole: string } }>,
@@ -105,6 +107,8 @@ export function registerAdminCallRoutes(
   };
 
   admin.get("/support-calls/settings", async (c) => c.json(await calls.getSettings()));
+
+  admin.get("/support-calls/usage", async (c) => c.json(await calls.usage()));
 
   admin.put("/support-calls/settings", async (c) => {
     if (!opts.canChange(c.get("adminRole"))) throw new ApiError(403, "forbidden", "Your admin role can only view.");

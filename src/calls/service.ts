@@ -58,7 +58,12 @@ export interface CallSettings {
   endTime: string;
   ringSeconds: number;
   maxMinutes: number;
+  /** Participant-minutes per calendar month before calls switch off (null = no limit). */
+  monthlyLimitMinutes: number | null;
 }
+
+/** Daily.co: free participant-minutes per calendar month. */
+export const FREE_MINUTES_PER_MONTH = 10_000;
 
 const ROW = (sql: Sql) =>
   sql`id, organization_id, caller_user_id, status, room_name, room_url, answered_by, ring_until, created_at, answered_at`;
@@ -144,7 +149,9 @@ export function createCallService(deps: { sql: Sql; provider: CallProvider; log:
             ? "Calls with our team are included in the Pro and White Label plans."
             : e.reason === "closed"
               ? "Our team is available Monday to Friday, 9:00-18:00 (Pakistan time). Please request a callback."
-              : "Calls are not available right now. Please request a callback.";
+              : e.reason === "limit"
+                ? "Our call lines are busy this month. Please request a callback and our team will call you."
+                : "Calls are not available right now. Please request a callback.";
         throw new ApiError(403, "forbidden", message);
       }
       const { ringSeconds, maxMinutes } = await settings();
@@ -253,7 +260,7 @@ export function createCallService(deps: { sql: Sql; provider: CallProvider; log:
     async getSettings(): Promise<CallSettings> {
       const [s] = await sql<Record<string, unknown>[]>`
         select enabled, allowed_plans, timezone, work_days, to_char(start_time, 'HH24:MI') as start_time,
-               to_char(end_time, 'HH24:MI') as end_time, ring_seconds, max_minutes
+               to_char(end_time, 'HH24:MI') as end_time, ring_seconds, max_minutes, monthly_limit_minutes
           from soft_ai.support_call_settings limit 1`;
       return {
         enabled: Boolean(s!.enabled),
@@ -264,7 +271,16 @@ export function createCallService(deps: { sql: Sql; provider: CallProvider; log:
         endTime: String(s!.end_time),
         ringSeconds: Number(s!.ring_seconds),
         maxMinutes: Number(s!.max_minutes),
+        monthlyLimitMinutes: s!.monthly_limit_minutes == null ? null : Number(s!.monthly_limit_minutes),
       };
+    },
+
+    /** This month's call minutes (for the admin page). */
+    async usage() {
+      const [row] = await sql<{ used: number; limit: number | null }[]>`
+        select soft_ai.support_call_minutes_this_month() as used,
+               (select monthly_limit_minutes from soft_ai.support_call_settings limit 1) as limit`;
+      return { usedMinutes: Number(row!.used), limitMinutes: row!.limit == null ? null : Number(row!.limit), freeMinutes: FREE_MINUTES_PER_MONTH };
     },
 
     async saveSettings(adminUserId: string, s: CallSettings) {
@@ -272,7 +288,7 @@ export function createCallService(deps: { sql: Sql; provider: CallProvider; log:
         update soft_ai.support_call_settings set
           enabled = ${s.enabled}, allowed_plans = ${s.allowedPlans}, timezone = ${s.timezone}, work_days = ${s.workDays},
           start_time = ${s.startTime}::time, end_time = ${s.endTime}::time, ring_seconds = ${s.ringSeconds},
-          max_minutes = ${s.maxMinutes}, updated_at = now(), updated_by = ${adminUserId}`;
+          max_minutes = ${s.maxMinutes}, monthly_limit_minutes = ${s.monthlyLimitMinutes}, updated_at = now(), updated_by = ${adminUserId}`;
     },
   };
 }

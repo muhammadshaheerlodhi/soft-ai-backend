@@ -52,3 +52,9 @@ Real Daily test (9 Oct): the key works and the private room is created, but
 joining fails with `account-missing-payment-method`. Daily needs a card on the
 account (the free 10,000 minutes still apply). Now, if joining fails, the call
 is ended on both sides and the customer gets a clear message and the callback form.
+
+## Monthly limit (12 Oct)
+Calls switch off for the rest of the month once this month's usage reaches the limit
+(default 9,000 participant-minutes; Daily's free allowance is 10,000; the rest is a buffer for calls
+still running). Customers then get the callback form. Setting + usage bar on Admin -> Support Calls
+(switch off = no limit). Migration 113; 2 new tests (197 total).
