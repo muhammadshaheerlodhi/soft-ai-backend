@@ -57,6 +57,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (f) await admin`delete from public.organization_subscriptions where organization_id = ${f.orgA}`;
   if (f) await removeFixtures(admin, f);
   await admin`delete from soft_ai.model_rates where model = ${MODEL}`;
   await admin`delete from soft_ai.rate_limit_counters where bucket like ${`chat\\_t\\_${run}%`}`;
@@ -143,6 +144,37 @@ describe("privacy between users", () => {
     const chat = await newChat(app, f.ownerA, f.orgA);
     // ownerA is not a member of B at all -> refused at the organization check.
     expect((await req(app, "GET", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgB)).status).toBe(403);
+  });
+});
+
+describe("Fast / Medium / High", () => {
+  it("Fast and Medium on every plan; High only on Pro and White Label", async () => {
+    const provider = new FakeProvider({ reply: "ok", usage: { inputTokens: 10, outputTokens: 10 } });
+    const app = makeApp(provider);
+    const opts = async () => (await (await req(app, "GET", "/v1/chat/options", f.ownerA, f.orgA)).json()) as any;
+    expect(await opts()).toMatchObject({ efforts: ["fast", "medium"] });
+
+    const chat = await newChat(app);
+    const high = await req(app, "POST", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgA, { content: "Hard question", effort: "high" });
+    expect(high.status).toBe(403);
+    expect(provider.calls).toBe(0); // refused before the AI was asked (nothing charged)
+
+    await admin`insert into public.organization_subscriptions (organization_id, plan_slug, status) values (${f.orgA}, 'pro', 'active')`;
+    expect(await opts()).toMatchObject({ plan: "pro", efforts: ["fast", "medium", "high"] });
+    await readEvents(await req(app, "POST", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgA, { content: "Hard question", effort: "high" }));
+    expect(provider.lastRequest).toMatchObject({ thinkingLevel: "HIGH", maxOutputTokens: 8192 });
+  });
+
+  it("Fast uses the normal settings; Medium thinks more with a bigger reply limit; unknown values are refused", async () => {
+    const provider = new FakeProvider({ reply: "ok", usage: { inputTokens: 10, outputTokens: 10 } });
+    const app = makeApp(provider);
+    const chat = await newChat(app);
+    await readEvents(await req(app, "POST", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgA, { content: "Q1" }));
+    expect(provider.lastRequest?.thinkingLevel).toBeUndefined();
+    expect(provider.lastRequest?.maxOutputTokens).toBe(200);
+    await readEvents(await req(app, "POST", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgA, { content: "Q2", effort: "medium" }));
+    expect(provider.lastRequest).toMatchObject({ thinkingLevel: "MEDIUM", maxOutputTokens: 800 });
+    expect((await req(app, "POST", `/v1/chat/conversations/${chat.id}/messages`, f.ownerA, f.orgA, { content: "Q3", effort: "max" })).status).toBe(400);
   });
 });
 

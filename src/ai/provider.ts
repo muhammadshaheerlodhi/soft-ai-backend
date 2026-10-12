@@ -45,6 +45,8 @@ export interface AiRequest {
    */
   maxOutputTokens: number;
   tools?: AiToolDeclaration[];
+  /** How hard the model thinks (more = better on hard questions, more tokens). Leave out for the default. */
+  thinkingLevel?: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
   /** "none" = the model must answer in text now (used for the last round). */
   toolChoice?: "auto" | "none";
   signal: AbortSignal;

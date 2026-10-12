@@ -19,6 +19,7 @@ import type { AnswerCache } from "./answer-cache.js";
 import { toJsonSchema, toolsFor, getTool } from "../tools/registry.js";
 import { executeToolCalls, type ToolCall, type ToolResult } from "../tools/execute.js";
 import { actionsFor, getAction } from "../actions/registry.js";
+import { allowedEfforts, effortSettings, EFFORTS, requireEffort } from "./effort.js";
 import type { ActionCard, ActionService, TurnActions } from "../actions/service.js";
 
 export interface ChatRouteOptions {
@@ -53,6 +54,8 @@ const sendSchema = z.object({
     })
     .strict()
     .optional(),
+  /** Fast (default) / Medium / High: how hard the AI thinks (see effort.ts). */
+  effort: z.enum(EFFORTS as [string, ...string[]]).optional(),
 });
 
 const updateSchema = z
@@ -67,6 +70,7 @@ const updateSchema = z
 /**
  * Chat endpoints (all behind login + organization checks):
  *
+ *   GET    /v1/chat/options                       Fast / Medium / High levels this organization may use
  *   POST   /v1/chat/conversations                 new chat
  *   GET    /v1/chat/conversations                 my chats (chat list), ?archived=true, ?before=<time>
  *   GET    /v1/chat/conversations/:id/messages    messages of one chat
@@ -82,6 +86,9 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     organizationId: c.get("member").organizationId,
     userId: c.get("member").userId,
   });
+
+  /** Which Fast / Medium / High levels this organization may use. */
+  v1.get("/chat/options", async (c) => c.json(await allowedEfforts(opts.sql, c.get("member").organizationId)));
 
   v1.post("/chat/conversations", async (c) => {
     const conv = await repo.createConversation(owner(c));
@@ -143,6 +150,9 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
 
     const isFirstMessage = conv.message_count === 0;
     const pageContext = body.pageContext ?? {};
+    const effort = (body.effort ?? "fast") as "fast" | "medium" | "high";
+    await requireEffort(opts.sql, me.organizationId, effort);
+    const level = effortSettings(effort, { maxOutputTokens: opts.maxOutputTokens });
 
     // ---- A. Rules engine: common commands, answered by our own code (free) ----
     const askedCapabilities = isCapabilitiesQuestion(body.content);
@@ -196,7 +206,7 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     // ---- C. Answer cache: same stand-alone question in this organization (free) ----
     const cacheKey =
       opts.cache && isFirstMessage && retrieval.releaseVersion
-        ? { organizationId: me.organizationId, question: body.content, releaseVersion: retrieval.releaseVersion, model: opts.model }
+        ? { organizationId: me.organizationId, question: body.content, releaseVersion: retrieval.releaseVersion, model: effort === "fast" ? opts.model : `${opts.model}:${effort}` }
         : null;
     if (cacheKey && opts.cache) {
       const cached = await opts.cache.get(cacheKey).catch(() => null);
@@ -254,7 +264,8 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
         model: opts.model,
         system: SYSTEM_PROMPT,
         messages: history,
-        maxOutputTokens: opts.maxOutputTokens,
+        maxOutputTokens: level.maxOutputTokens,
+        ...(level.thinkingLevel ? { thinkingLevel: level.thinkingLevel } : {}),
         ...(toolDeclarations.length ? { tools: toolDeclarations } : {}),
       },
       maxRounds: opts.tools?.maxRounds,

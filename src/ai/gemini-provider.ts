@@ -109,9 +109,8 @@ export class GeminiProvider implements AiProvider {
       abortSignal: request.signal,
     };
     if (request.system) config.systemInstruction = request.system;
-    if (this.options.thinkingLevel) {
-      config.thinkingConfig = { thinkingLevel: ThinkingLevel[this.options.thinkingLevel] };
-    }
+    const thinking = request.thinkingLevel ?? this.options.thinkingLevel;
+    if (thinking) config.thinkingConfig = { thinkingLevel: ThinkingLevel[thinking] };
     if (request.tools?.length) {
       config.tools = [
         {
