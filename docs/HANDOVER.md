@@ -21,6 +21,9 @@ Mon-Fri 9:00-18:00, monthly minute limit).
 
 ## 2. Deploy, in this order (with a backup first)
 
+**Simple click-by-click version for Railway + Vercel: [DEPLOY_RAILWAY.md](DEPLOY_RAILWAY.md).**
+All database changes in one file for the Supabase SQL editor: `db/RUN_SOFT_AI_100_114.sql`.
+
 1. **Backup** the live database (Supabase dashboard -> Database -> Backups).
 2. **ERP migrations** up to `071` must be on live (check with `local-dev/live-check.ps1`; on 9 Oct live
    matched local up to 068).
