@@ -16,6 +16,9 @@ It will run on Railway and use the ERP's Supabase database (its own private `sof
 > Step 7 (read-only company data tools, tool registry) - done 7 Oct 2026.
 > Step 8 (actions: propose, confirm, run with the ERP's own code, check, undo) - done 8 Oct 2026.
 > Step 9 (buying credits with Stripe, monthly allowance, limits, warnings, admin panel) - done 8 Oct 2026; 180 tests pass.
+> Shaheer's meeting changes, "Talk to a person" calls, Fast / Medium / High - done 9-12 Oct 2026; 199 tests pass.
+>
+> **Start here: [docs/HANDOVER.md](docs/HANDOVER.md)** (what is included, how to deploy, how to add features).
 
 ## Folder layout
 
@@ -80,3 +83,4 @@ soft-ai-backend/
 - [docs/08-actions.md](docs/08-actions.md)
 - [docs/09-credits-billing.md](docs/09-credits-billing.md)
 - [docs/10-support-calls.md](docs/10-support-calls.md)
+- [docs/HANDOVER.md](docs/HANDOVER.md)
