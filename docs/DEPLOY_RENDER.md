@@ -13,7 +13,7 @@ a new service from the same repo, the same settings, and a new address in Vercel
 ## Step 1 - Supabase: backup and database
 
 1. Supabase -> your project -> **Database -> Backups**: make sure there is a backup from today.
-2. Check the ERP migrations up to **080** are applied (they come with the ERP pull request).
+2. Check the ERP migrations up to **071** are applied. (072 to 080 come with the ERP pull request and are run when that is deployed; Soft AI does not need them.)
 3. **SQL Editor -> New query** -> paste the whole file **`db/RUN_SOFT_AI_100_114.sql`** -> **Run**.
    It runs as one block: if anything fails, nothing is changed. It only creates the private
    `soft_ai` schema and does not touch ERP tables. Safe to run again.
