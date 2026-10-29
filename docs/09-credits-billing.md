@@ -77,7 +77,7 @@ add 10 credits with reason) -> ledger + Activity page entry. Buying is off local
 
 Still before going live: Stripe webhook endpoint `https://<soft-ai>/webhooks/stripe`
 (`checkout.session.completed`, `checkout.session.async_payment_succeeded`,
-`checkout.session.async_payment_failed`, `checkout.session.expired`), keys in Railway,
+`checkout.session.async_payment_failed`, `checkout.session.expired`), keys in Render,
 one real test payment with Stripe test keys. Production credit rate per model
 (credits per 1,000 tokens) to be set by the admin.
 

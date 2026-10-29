@@ -53,7 +53,7 @@ and the AI bill from floods or loops.
 | Per organization per minute | 120 | `RATE_ORG_PER_MINUTE` |
 
 - Counted in the database (`soft_ai.hit_rate_limits`), so all copies of the backend on
-  Railway share the same counts.
+  the host share the same counts.
 - Over the limit: `429 rate_limited` with a `Retry-After` header (seconds).
 - Login and organization are checked **before** counting, so anonymous traffic can't use
   up anyone's limit.

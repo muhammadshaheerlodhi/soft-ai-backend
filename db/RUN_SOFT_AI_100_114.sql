@@ -8,7 +8,7 @@
 --   ERP tables are not changed.
 -- * Everything runs in ONE transaction: if anything fails, nothing is changed.
 -- * Safe to run again later (for example after an update).
--- * After this, set the service role password (see DEPLOY_RAILWAY.md step 2).
+-- * After this, set the service role password (see docs/DEPLOY_RENDER.md step 2).
 -- =====================================================================
 BEGIN;
 
@@ -1010,7 +1010,7 @@ GRANT EXECUTE ON FUNCTION soft_ai.transfer_credits(UUID, UUID, NUMERIC, UUID, TE
 -- 2. hit_rate_limits(buckets, windows, maxes)
 --    Counts requests per "bucket" (e.g. one user, one organization) in fixed
 --    time windows. Stored in the database so the limit is shared by every copy
---    of the backend (Railway can run more than one).
+--    of the backend (the host can run more than one).
 --
 -- Safe to re-run.
 -- =====================================================================

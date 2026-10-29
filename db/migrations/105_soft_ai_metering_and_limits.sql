@@ -10,7 +10,7 @@
 -- 2. hit_rate_limits(buckets, windows, maxes)
 --    Counts requests per "bucket" (e.g. one user, one organization) in fixed
 --    time windows. Stored in the database so the limit is shared by every copy
---    of the backend (Railway can run more than one).
+--    of the backend (the host can run more than one).
 --
 -- Safe to re-run.
 -- =====================================================================

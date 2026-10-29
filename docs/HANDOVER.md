@@ -21,7 +21,7 @@ Mon-Fri 9:00-18:00, monthly minute limit).
 
 ## 2. Deploy, in this order (with a backup first)
 
-**Simple click-by-click version for Railway + Vercel: [DEPLOY_RAILWAY.md](DEPLOY_RAILWAY.md).**
+**Simple click-by-click version for Render + Vercel: [DEPLOY_RENDER.md](DEPLOY_RENDER.md).**
 All database changes in one file for the Supabase SQL editor: `db/RUN_SOFT_AI_100_114.sql`.
 
 1. **Backup** the live database (Supabase dashboard -> Database -> Backups).
@@ -32,7 +32,7 @@ All database changes in one file for the Supabase SQL editor: `db/RUN_SOFT_AI_10
 4. **Service role login** (the files never contain a password):
    `ALTER ROLE soft_ai_service LOGIN PASSWORD '<strong password>';`
    The backend's `DATABASE_URL` uses this role, never the `postgres` owner.
-5. **Backend hosting** (e.g. Railway): `npm ci && npm run build`, start `npm start`, health check `/health`.
+5. **Backend hosting** (Render, `render.yaml`): `npm ci && npm run build`, start `npm start`, health check `/health`.
    Environment: copy `.env.example`, fill in the values (see the comments there). Must-haves:
    `DATABASE_URL`, `SUPABASE_URL`, `AUTH_JWT_MODE`, `CORS_ALLOWED_ORIGINS` (the ERP's address),
    `GEMINI_API_KEY`, `APP_PUBLIC_URL`, `PLATFORM_OWNER_EMAIL`. Optional: `STRIPE_SECRET_KEY` +

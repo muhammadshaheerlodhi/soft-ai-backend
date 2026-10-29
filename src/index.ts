@@ -107,7 +107,7 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   );
 });
 
-// Graceful shutdown (Railway sends SIGTERM on deploy/stop):
+// Graceful shutdown (the host, e.g. Render, sends SIGTERM on deploy/stop):
 // stop taking new requests, let running ones finish, close the database pool.
 let shuttingDown = false;
 function shutdown(signal: string) {

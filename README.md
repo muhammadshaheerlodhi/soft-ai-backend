@@ -1,7 +1,7 @@
 # soft-ai-backend
 
 Backend service for **Soft AI**, the AI assistant inside Softoras ERP.
-It will run on Railway and use the ERP's Supabase database (its own private `soft_ai` schema).
+It runs on Render (see docs/DEPLOY_RENDER.md) and uses the ERP's Supabase database (its own private `soft_ai` schema).
 
 > Status: step 1 (database) - done and tested on a LOCAL database (7 Oct 2026):
 > ERP migrations 001-056 + Soft AI 100-104 applied, 55 checks passed, migrations re-runnable.

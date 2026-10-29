@@ -1,0 +1,37 @@
+# Render Blueprint for the Soft AI service (Render -> New -> Blueprint -> this repo).
+# Render fills in everything below; it asks only for the values marked "sync: false"
+# (keys and addresses). See docs/DEPLOY_RENDER.md.
+services:
+  - type: web
+    name: soft-ai-backend
+    runtime: node
+    plan: starter # always on; the free plan sleeps after 15 minutes
+    region: singapore # closest to the Supabase database (Mumbai)
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: AUTH_JWT_MODE
+        sync: false
+      - key: SUPABASE_JWT_SECRET # only when AUTH_JWT_MODE=secret; otherwise leave empty
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: APP_PUBLIC_URL
+        sync: false
+      - key: PLATFORM_OWNER_EMAIL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY # empty = buying credits switched off
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: DAILY_API_KEY # empty = support calls switched off
+        sync: false
