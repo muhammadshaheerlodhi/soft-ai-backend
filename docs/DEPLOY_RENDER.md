@@ -39,8 +39,8 @@ postgresql://soft_ai_service.<project-ref>:<the password>@aws-0-ap-south-1.poole
 ## Step 3 - Render: the Soft AI service
 
 The repo has a **`render.yaml`** (Render "Blueprint"): it already sets the build (`npm ci && npm run build`),
-start (`npm start`), health check (`/health`), Node version (`.node-version`), plan **Starter**
-(about $7 a month, always on) and region **Singapore** (closest to the database).
+start (`npm start`), health check (`/health`), Node version (`.node-version`), compute plan **0.5c-512mb**
+(less than 1 CPU, 512 MB, about $7 a month, always on; workspace plan **Hobby** is free) and region **Singapore** (closest to the database).
 
 1. Sign up at [render.com](https://render.com) with the Softoras GitHub account.
    **Account settings -> Billing**: add the card (needed for the Starter plan).

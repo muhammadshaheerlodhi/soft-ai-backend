@@ -5,7 +5,7 @@ services:
   - type: web
     name: soft-ai-backend
     runtime: node
-    plan: starter # always on; the free plan sleeps after 15 minutes
+    plan: 0.5c-512mb # "less than 1 CPU, 512 MB", about $7/month, always on (the free plan sleeps after 15 minutes)
     region: singapore # closest to the Supabase database (Mumbai)
     buildCommand: npm ci && npm run build
     startCommand: npm start
