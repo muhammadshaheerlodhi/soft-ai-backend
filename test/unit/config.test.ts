@@ -18,6 +18,24 @@ describe("config", () => {
     expect(c.thinkingLevel).toBe("MINIMAL"); // cheapest thinking by default
   });
 
+  it("an empty setting counts as not set (hosts like Render save empty boxes as empty values)", () => {
+    const c = loadConfig({
+      ...base,
+      PLATFORM_OWNER_EMAIL: "",
+      APP_PUBLIC_URL: " ",
+      STRIPE_SECRET_KEY: "",
+      STRIPE_WEBHOOK_SECRET: "",
+      DAILY_API_KEY: "",
+      SUPABASE_JWT_SECRET: "",
+      AUTH_JWT_MODE: "",
+    });
+    expect(c.authJwtMode).toBe("jwks"); // default, not an error
+    expect(c.supabaseJwtSecret).toBeUndefined();
+    // a required one left empty is still refused
+    expect(() => loadConfig({ ...base, GEMINI_API_KEY: "" })).toThrow(/GEMINI_API_KEY/);
+    expect(() => loadConfig({ ...base, DATABASE_URL: "" })).toThrow(/DATABASE_URL/);
+  });
+
   it("refuses to start without a database url", () => {
     expect(() => loadConfig({ SUPABASE_URL: base.SUPABASE_URL, GEMINI_API_KEY: "x" })).toThrow(/DATABASE_URL/);
   });

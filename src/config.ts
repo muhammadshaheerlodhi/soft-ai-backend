@@ -137,7 +137,10 @@ export interface Config {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const parsed = envSchema.safeParse(env);
+  // An empty setting counts as "not set" (hosting dashboards save empty boxes as empty values),
+  // so optional ones fall back to their default instead of failing a format check.
+  const given = Object.fromEntries(Object.entries(env).filter(([, v]) => v !== undefined && v.trim() !== ""));
+  const parsed = envSchema.safeParse(given);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Invalid configuration: ${problems}`);
