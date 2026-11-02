@@ -186,6 +186,43 @@ describe("limits set by a platform admin", () => {
   });
 });
 
+describe("price per question (admin)", () => {
+  const MODEL = `test-model-${randomUUID().slice(0, 8)}`;
+  afterAll(async () => {
+    await admin`delete from soft_ai.model_rates where model = ${MODEL}`;
+  });
+
+  it("shows the current price, changes it as a new row (history kept), and new requests use it", async () => {
+    await admin`insert into soft_ai.model_rates (model, input_credits_per_1k, output_credits_per_1k, effective_from, provider_input_usd_per_1m)
+                values (${MODEL}, 0.04, 0.30, now() - interval '1 day', 0.10)`;
+    const before = await call("GET", "/admin/v1/rates", f.ownerB, null);
+    expect(before.status).toBe(200);
+    expect(before.body.rates.find((r: { model: string }) => r.model === MODEL)).toMatchObject({ inputPer1k: "0.040000", outputPer1k: "0.300000" });
+
+    const put = await call("PUT", `/admin/v1/rates/${MODEL}`, f.ownerB, null, { inputPer1k: "0.05", outputPer1k: "0.4" });
+    expect(put.status).toBe(200);
+    const after = await call("GET", "/admin/v1/rates", f.ownerB, null);
+    expect(after.body.rates.find((r: { model: string }) => r.model === MODEL)).toMatchObject({
+      inputPer1k: "0.050000", outputPer1k: "0.400000", providerInputUsdPer1m: "0.100000",
+    });
+
+    const rows = await admin`select count(*)::int as n from soft_ai.model_rates where model = ${MODEL}`;
+    expect(rows[0]!.n).toBe(2);
+    const [cost] = await admin<{ c: string }[]>`select soft_ai.compute_cost(${MODEL}, 1000, 1000)::text as c`;
+    expect(cost!.c).toBe("0.4500");
+  });
+
+  it("'support' can only look; unknown models and bad numbers are refused", async () => {
+    expect((await call("GET", "/admin/v1/rates", f.salesA, null)).status).toBe(200);
+    expect((await call("PUT", `/admin/v1/rates/${MODEL}`, f.salesA, null, { inputPer1k: "0", outputPer1k: "0" })).status).toBe(403);
+    expect((await call("PUT", "/admin/v1/rates/no-such-model", f.ownerB, null, { inputPer1k: "1", outputPer1k: "1" })).status).toBe(404);
+    for (const bad of [{ inputPer1k: "-1", outputPer1k: "1" }, { inputPer1k: "1", outputPer1k: "5000" }, { inputPer1k: "abc", outputPer1k: "1" }]) {
+      expect((await call("PUT", `/admin/v1/rates/${MODEL}`, f.ownerB, null, bad)).status).toBe(400);
+    }
+    expect((await call("GET", "/admin/v1/rates", f.ownerA, null)).status).toBe(403); // org owner is not a platform admin
+  });
+});
+
 describe("buying credits with Stripe", () => {
   it("only owners/admins (or settings.edit) may start a payment", async () => {
     expect((await call("POST", "/v1/credits/checkout", f.salesA, f.orgA, { packId: PACK })).status).toBe(403);
