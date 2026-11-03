@@ -27,7 +27,9 @@ import { registerAdminCallRoutes, type CallEvents } from "../calls/routes.js";
  *   PUT  /organizations/:id/settings  allowance override, monthly cap, daily cap per user
  *   GET  /plans   PUT /plans/:slug    monthly credits per ERP plan
  *   GET  /packs   PUT /packs/:id      credit packs for sale
+ *   GET  /rates   PUT /rates/:model   credits per 1,000 tokens for each AI model (the price of a question)
  * Every change is in the ledger / settings history and the organization's Activity feed.
+ * A new rate is a new row (effective now); older rows stay as the price history.
  */
 
 type AdminRole = "owner" | "super_admin" | "billing_manager" | "support";
@@ -60,6 +62,12 @@ const packSchema = z
     sortOrder: z.number().int().min(0).max(1000),
   })
   .strict();
+/** Credits per 1,000 tokens: up to 6 decimals, at most 1000. */
+const ratePer1k = z
+  .string()
+  .regex(/^\d{1,4}(\.\d{1,6})?$/, "must be a number with up to 6 decimals")
+  .refine((v) => Number(v) <= 1000, "must be 1000 or less");
+const rateSchema = z.object({ inputPer1k: ratePer1k, outputPer1k: ratePer1k }).strict();
 
 export function createAdminRoutes(opts: {
   sql: Sql;
@@ -172,6 +180,39 @@ export function createAdminRoutes(opts: {
     const b = await parse(c.req.raw, packSchema);
     await sql`select soft_ai.admin_set_pack(${id}, ${b.name}, ${b.credits}::numeric, ${b.priceCents}::int,
                 ${b.currency}, ${b.isActive}, ${b.sortOrder}::int)`;
+    return c.json({ ok: true });
+  });
+
+  // The price of AI use: current credits per 1,000 tokens for each model, with Google's cost for comparison.
+  admin.get("/rates", async (c) => {
+    const rates = await sql`
+      select distinct on (model)
+             model, input_credits_per_1k::text as "inputPer1k", output_credits_per_1k::text as "outputPer1k",
+             effective_from as "since", provider_input_usd_per_1m::text as "providerInputUsdPer1m",
+             provider_output_usd_per_1m::text as "providerOutputUsdPer1m"
+        from soft_ai.model_rates
+       where effective_from <= now()
+       order by model, effective_from desc`;
+    return c.json({ rates });
+  });
+
+  // New price for a model already in use (no new models from here, so a typo cannot add one).
+  admin.put("/rates/:model", requireChange, async (c) => {
+    const model = c.req.param("model");
+    if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(model)) throw new ApiError(400, "bad_request", "Invalid model.");
+    const b = await parse(c.req.raw, rateSchema);
+    const inserted = await sql`
+      insert into soft_ai.model_rates
+             (model, input_credits_per_1k, output_credits_per_1k, effective_from, created_by,
+              provider_input_usd_per_1m, provider_output_usd_per_1m)
+      select model, ${b.inputPer1k}::numeric, ${b.outputPer1k}::numeric, clock_timestamp(), ${c.get("user").userId}::uuid,
+             provider_input_usd_per_1m, provider_output_usd_per_1m
+        from soft_ai.model_rates
+       where model = ${model} and effective_from <= now()
+       order by effective_from desc
+       limit 1
+      returning model`;
+    if (!inserted.length) throw new ApiError(404, "not_found", "This model has no price yet.");
     return c.json({ ok: true });
   });
 
