@@ -205,6 +205,18 @@ describe("rules engine in the chat (free)", () => {
     expect(provider.calls).toBe(0);
   });
 
+  it("'What can you do for me?' goes to the AI with only what this user's role allows (full answer, not a fixed list)", async () => {
+    const provider = new FakeProvider({ reply: "Here is how I can help..." });
+    const r = await ask(makeApp(provider), f.salesA, f.orgA, "What can you do for me?"); // salesA only has sales.view
+    expect(r.done?.answeredBy).toBe("model");
+    expect(provider.calls).toBe(1);
+    const sent = (provider.lastRequest!.messages.at(-1)! as { content: string }).content;
+    expect(sent).toContain("<soft_ai_capabilities>");
+    expect(sent).not.toContain("leave approvals"); // needs hr.approve
+    expect(sent).toContain("What can you do for me?");
+    expect(provider.lastRequest!.system).toContain("give a friendly, complete overview");
+  });
+
   it("a user without HR permission cannot open Payroll through Soft AI (it goes to the AI instead)", async () => {
     const provider = new FakeProvider({ reply: "I can't open that for you." });
     const r = await ask(makeApp(provider), f.salesA, f.orgA, "open payroll"); // salesA only has sales.view

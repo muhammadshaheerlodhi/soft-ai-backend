@@ -3,9 +3,9 @@ import { toolsFor } from "../tools/registry.js";
 import { actionsFor } from "../actions/registry.js";
 
 /**
- * "What can you do?" - a SHORT answer, built from what THIS user's role
- * allows (free: answered by our own code, no AI). Shaheer's request (9 Oct 2026):
- * the user should see at a glance what kind of work Soft AI can do.
+ * "What can you do?" questions. Recognised here; the AI answers them (with the list of what
+ * this user's role allows, see capabilitiesContext). Until 17 Nov 2026 this was a fixed,
+ * short reply without the AI (Shaheer, 9 Oct); now he wants a full, ChatGPT-like answer.
  */
 
 const ASK_EN =
@@ -46,36 +46,27 @@ const ACTION_LABELS: Record<string, string> = {
   create_product: "products",
 };
 
-export function capabilitiesReply(
-  member: MemberContext,
-  lang: "en" | "ur",
-  enabled: { tools: boolean; actions: boolean },
-): string {
+/**
+ * What THIS user can ask Soft AI for (only what their role allows), given to the AI with a
+ * "what can you do?" question. The AI then explains it in its own words, with examples
+ * (Shaheer, 17 Nov 2026: answer like ChatGPT, not a fixed 4-line list).
+ */
+export function capabilitiesContext(member: MemberContext, enabled: { tools: boolean; actions: boolean }): string {
   const data = enabled.tools ? [...new Set(toolsFor(member).map((t) => DATA_LABELS[t.name]).filter(Boolean))] : [];
   const actions = enabled.actions ? [...new Set(actionsFor(member).map((a) => ACTION_LABELS[a.name]).filter(Boolean))] : [];
-
-  if (lang === "ur") {
-    const lines = [
-      "Main aap ke liye ye kaam kar sakta hoon:",
-      "- **Koi bhi page kholna** - jaise \"invoices kholo\"",
-      "- **Softoras chalana sikhana** - kisi bhi feature ke steps",
-      ...(data.length ? [`- **Aap ke numbers batana** - ${data.join(", ")}`] : []),
-      ...(actions.length ? [`- **Kaam tayyar karna** - ${actions.join(", ")} (aap confirm karein, undo bhi ho sakta hai)`] : []),
-      "- **General sawal** - likhna, hisaab, mashwara",
-      "",
-      "Bas likhiye aap ko kya chahiye.",
-    ];
-    return lines.join("\n");
-  }
   const lines = [
-    "Here's what I can do for you:",
-    "- **Open any page** - e.g. \"open invoices\"",
-    "- **Show you how** to do anything in Softoras",
-    ...(data.length ? [`- **Check your numbers** - ${data.join(", ")}`] : []),
-    ...(actions.length ? [`- **Prepare work for you** - ${actions.join(", ")} (you confirm, and can undo)`] : []),
-    "- **General help** - writing, maths, business questions",
-    "",
-    "Just type what you need.",
+    "<soft_ai_capabilities>",
+    "- Open any Softoras page the user can use (for example: \"open invoices\").",
+    "- Explain how to do things in Softoras, step by step, with links to the right pages.",
+    data.length
+      ? `- Read this company's live numbers and records: ${data.join(", ")}.`
+      : "- (This user's role cannot read company numbers through Soft AI.)",
+    actions.length
+      ? `- Prepare changes for the user to confirm (with Undo): ${actions.join(", ")}. Never done without their Confirm.`
+      : "- (This user's role cannot prepare changes through Soft AI.)",
+    "- General help: write or improve emails, messages and descriptions; maths and calculations; explain business ideas; plan and brainstorm.",
+    "- Cannot: send emails, take or record payments, post invoices or delete records.",
+    "</soft_ai_capabilities>",
   ];
   return lines.join("\n");
 }

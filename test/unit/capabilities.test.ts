@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capabilitiesReply, isCapabilitiesQuestion } from "../../src/chat/capabilities.js";
+import { capabilitiesContext, isCapabilitiesQuestion } from "../../src/chat/capabilities.js";
 import type { MemberContext } from "../../src/auth/member-context.js";
 
 function member(overrides: Partial<MemberContext> = {}): MemberContext {
@@ -31,28 +31,25 @@ describe('"What can you do?"', () => {
     }
   });
 
-  it("lists only what the role allows, in short lines", () => {
-    const sales = capabilitiesReply(member(), "en", ON);
+  it("the list given to the AI has only what the role allows", () => {
+    const sales = capabilitiesContext(member(), ON);
+    expect(sales).toMatch(/^<soft_ai_capabilities>/);
     expect(sales).toContain("money customers owe");
     expect(sales).toContain("draft invoices");
     expect(sales).not.toContain("cash & bank");      // needs accounting.view
     expect(sales).not.toContain("leave approvals");  // needs hr.approve
-    expect(sales.split("\n").length).toBeLessThanOrEqual(9);
 
-    const owner = capabilitiesReply(member({ isOwner: true, permissions: new Set() }), "en", ON);
+    const owner = capabilitiesContext(member({ isOwner: true, permissions: new Set() }), ON);
     expect(owner).toContain("cash & bank");
     expect(owner).toContain("leave approvals");
 
-    const none = capabilitiesReply(member({ permissions: new Set() }), "en", ON);
-    expect(none).not.toContain("Check your numbers");
-    expect(none).not.toContain("Prepare work");
+    const none = capabilitiesContext(member({ permissions: new Set() }), ON);
+    expect(none).toContain("cannot read company numbers");
+    expect(none).toContain("cannot prepare changes");
   });
 
-  it("answers in Roman Urdu when asked in Roman Urdu", () => {
-    expect(capabilitiesReply(member(), "ur", ON)).toMatch(/^Main aap ke liye ye kaam kar sakta hoon:/);
-  });
-
-  it("does not offer actions when actions are switched off", () => {
-    expect(capabilitiesReply(member(), "en", { tools: true, actions: false })).not.toContain("Prepare work");
+  it("always says what Soft AI cannot do, and no actions when they are switched off", () => {
+    expect(capabilitiesContext(member(), ON)).toContain("Cannot: send emails");
+    expect(capabilitiesContext(member(), { tools: true, actions: false })).toContain("cannot prepare changes");
   });
 });
