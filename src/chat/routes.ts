@@ -14,7 +14,7 @@ import { formatKnowledgeForPrompt, retrieveKnowledge, type RetrievalResult } fro
 import { createChatRepository, type ConversationRow, type MessageRow, type MessageSource, type Owner } from "./repository.js";
 import { buildHistory, SYSTEM_PROMPT, titleFromMessage, withKnowledge } from "./prompt.js";
 import { matchRule, type PageDirectory } from "./rules.js";
-import { capabilitiesReply, isCapabilitiesQuestion } from "./capabilities.js";
+import { capabilitiesContext, isCapabilitiesQuestion } from "./capabilities.js";
 import type { AnswerCache } from "./answer-cache.js";
 import { toJsonSchema, toolsFor, getTool } from "../tools/registry.js";
 import { executeToolCalls, type ToolCall, type ToolResult } from "../tools/execute.js";
@@ -155,15 +155,10 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const level = effortSettings(effort, { maxOutputTokens: opts.maxOutputTokens });
 
     // ---- A. Rules engine: common commands, answered by our own code (free) ----
+    // "What can you do?" is answered by the AI (full answer with examples), with the list of
+    // what this user's role allows - see capabilitiesContext below.
     const askedCapabilities = isCapabilitiesQuestion(body.content);
-    if (askedCapabilities) {
-      return sendInstantAnswer(c, repo, me, id, isFirstMessage, body.content, pageContext, {
-        answeredBy: "rules",
-        text: capabilitiesReply(c.get("member"), askedCapabilities, { tools: Boolean(opts.tools), actions: Boolean(opts.tools && opts.actions) }),
-        sources: [],
-      });
-    }
-    if (opts.pages) {
+    if (opts.pages && !askedCapabilities) {
       const rule = matchRule(body.content, await opts.pages.pagesFor(c.get("member")));
       if (rule) {
         return sendInstantAnswer(c, repo, me, id, isFirstMessage, body.content, pageContext, {
@@ -204,8 +199,9 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const sources: MessageSource[] = dedupeSources(retrieval.hits.map((h) => ({ title: h.title, urlPath: h.urlPath })));
 
     // ---- C. Answer cache: same stand-alone question in this organization (free) ----
+    // Not for "what can you do?": the answer depends on the user's role, and the cache is shared by the company.
     const cacheKey =
-      opts.cache && isFirstMessage && retrieval.releaseVersion
+      opts.cache && isFirstMessage && retrieval.releaseVersion && !askedCapabilities
         ? { organizationId: me.organizationId, question: body.content, releaseVersion: retrieval.releaseVersion, model: effort === "fast" ? opts.model : `${opts.model}:${effort}` }
         : null;
     if (cacheKey && opts.cache) {
@@ -225,6 +221,9 @@ export function registerChatRoutes(v1: Hono<AppEnv>, opts: ChatRouteOptions) {
     const history = buildHistory([...earlier, { role: "user", content: body.content, status: "complete" }], opts.history);
     const last = history[history.length - 1];
     if (last) last.content = withKnowledge(last.content, formatKnowledgeForPrompt(retrieval.hits));
+    if (last && askedCapabilities) {
+      last.content = `${capabilitiesContext(c.get("member"), { tools: Boolean(opts.tools), actions: Boolean(opts.tools && opts.actions) })}\n\n${last.content}`;
+    }
 
     // Company-data tools: ONLY the ones this user's role allows are offered to the AI.
     const member = c.get("member");
